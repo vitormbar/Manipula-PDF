@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Manipula PDF</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- Sidebar de ferramentas (preparada para futuras funcionalidades) -->
+      <aside class="sidebar">
+        <div class="sidebar-logo">
+          <span class="logo-icon">📄</span>
+          <span class="logo-text">Manipula PDF</span>
+        </div>
+
+        <nav class="sidebar-nav">
+          <ul class="nav-list">
+            <li class="nav-item active" data-tool="merge">
+              <span class="nav-icon">🔗</span>
+              <span class="nav-label">Unir PDFs</span>
+            </li>
+            <!-- Futuras ferramentas serão adicionadas aqui -->
+          </ul>
+        </nav>
+      </aside>
+
+      <!-- Conteúdo principal -->
+      <main class="main-content">
+        <!-- Painel: Unir PDFs -->
+        <section class="tool-panel active" id="panel-merge">
+          <header class="panel-header">
+            <h1 class="panel-title">Unir PDFs</h1>
+            <p class="panel-description">
+              Selecione ou arraste múltiplos arquivos PDF. Eles serão ordenados
+              automaticamente em ordem alfabética natural (1, 2, 3… 10, 11…).
+            </p>
+          </header>
+
+          <!-- Zona de upload -->
+          <div class="upload-zone" id="upload-zone" role="button" tabindex="0"
+               aria-label="Arraste PDFs aqui ou clique para selecionar">
+            <div class="upload-zone-content">
+              <span class="upload-icon" aria-hidden="true">📂</span>
+              <p class="upload-primary-text">Arraste os arquivos PDF aqui</p>
+              <p class="upload-secondary-text">ou</p>
+              <button class="btn btn-secondary" id="btn-select-files" type="button">
+                Selecionar Arquivos
+              </button>
+              <input type="file" id="file-input" accept=".pdf" multiple hidden />
+            </div>
+          </div>
+
+          <!-- Barra de ações da lista de arquivos -->
+          <div class="file-list-actions" id="file-list-actions" hidden>
+            <div class="file-list-info">
+              <span id="file-count-label">0 arquivos selecionados</span>
+            </div>
+            <div class="action-buttons">
+              <button class="btn btn-ghost btn-small" id="btn-sort-files" type="button"
+                      title="Ordenar em ordem alfabética natural (como o Windows Explorer)">
+                <span aria-hidden="true">🔤</span> Ordenar A-Z
+              </button>
+              <button class="btn btn-ghost btn-small btn-danger" id="btn-clear-files" type="button"
+                      title="Remover todos os arquivos">
+                <span aria-hidden="true">🗑️</span> Limpar
+              </button>
+            </div>
+          </div>
+
+          <!-- Lista de arquivos -->
+          <ul class="file-list" id="file-list" aria-label="Lista de arquivos PDF" hidden></ul>
+
+          <!-- Configurações do nome do arquivo de saída -->
+          <div class="output-settings" id="output-settings" hidden>
+            <h2 class="output-settings-title">Nome do arquivo</h2>
+
+            <div class="output-fields-row">
+              <div class="field-group">
+                <label class="field-label" for="input-nome">Nome</label>
+                <input class="field-input" type="text" id="input-nome"
+                       placeholder="Ex.: João da Silva" autocomplete="off" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="input-cpf">CPF</label>
+                <input class="field-input" type="text" id="input-cpf"
+                       placeholder="000.000.000-00" maxlength="14" autocomplete="off"
+                       inputmode="numeric" />
+              </div>
+            </div>
+
+            <div class="field-group" id="custom-name-group">
+              <label class="field-label" for="input-custom-name">
+                Nome personalizado
+                <span class="field-hint">— usado quando Nome e CPF estiverem em branco</span>
+              </label>
+              <input class="field-input" type="text" id="input-custom-name"
+                     placeholder="Ex.: relatorio-final" autocomplete="off" />
+            </div>
+
+            <div class="filename-preview" id="filename-preview-container">
+              <span class="preview-icon" aria-hidden="true">💾</span>
+              <span class="preview-text">Salvar como: </span>
+              <strong class="preview-value" id="filename-preview">documentos-unidos.pdf</strong>
+            </div>
+          </div>
+
+          <!-- Barra de progresso -->
+          <div class="progress-container" id="progress-container" hidden>
+            <div class="progress-label" id="progress-label">Processando…</div>
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" id="progress-bar-fill"></div>
+            </div>
+          </div>
+
+          <!-- Botão de ação principal -->
+          <div class="panel-footer" id="panel-footer" hidden>
+            <button class="btn btn-primary btn-large" id="btn-merge" type="button">
+              <span aria-hidden="true">⚡</span> Unir PDFs
+            </button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Notificações -->
+    <div class="toast-container" id="toast-container" aria-live="polite"></div>
+
+    <!-- Dependência: pdf-lib para manipulação de PDFs no navegador -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+
+    <!-- Módulos da aplicação (ordem importa: dependências antes dos consumidores) -->
+    <script src="js/FileManager.js"></script>
+    <script src="js/PdfProcessor.js"></script>
+    <script src="js/UIController.js"></script>
+    <script src="js/App.js"></script>
+  </body>
+</html>
