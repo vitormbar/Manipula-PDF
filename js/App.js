@@ -15,14 +15,24 @@ class App {
     this._fileManager  = new FileManager();
     this._pdfProcessor = new PdfProcessor();
 
+    // Estado do painel de extração: arquivo fonte e total de páginas.
+    // Mantidos aqui pois são dados de negócio, não de apresentação.
+    this._extractSourceFile = null;
+    this._extractPageCount  = 0;
+
     // O UIController recebe os handlers como injeção de dependência,
     // seguindo o princípio de Inversão de Dependência (SOLID - D).
     this._uiController = new UIController({
+      // Painel: Unir PDFs
       onFilesAdded:    (files) => this._handleFilesAdded(files),
       onFileRemoved:   (index) => this._handleFileRemoved(index),
       onSortRequested: ()      => this._handleSortRequested(),
       onClearRequested:()      => this._handleClearRequested(),
       onMergeRequested:()      => this._handleMergeRequested(),
+      // Painel: Extrair Páginas
+      onExtractFileSelected: (file) => this._handleExtractFileSelected(file),
+      onExtractFileRemoved:  ()     => this._handleExtractFileRemoved(),
+      onExtractRequested:    ()     => this._handleExtractRequested(),
     });
   }
 
@@ -154,6 +164,103 @@ class App {
   _refreshFileList() {
     this._uiController.renderFileList(this._fileManager.getFiles());
   }
+
+  // ─── Handlers do painel: Extrair Páginas ──────────────────────────────────
+
+  /**
+   * Carrega o PDF selecionado para obter seu total de páginas.
+   * Exibe informações do arquivo e revela a seção de configuração de extração.
+   *
+   * @param {File} file
+   */
+  async _handleExtractFileSelected(file) {
+    if (file.type !== 'application/pdf') {
+      this._uiController.showToast('Apenas arquivos PDF são aceitos.', 'error');
+      return;
+    }
+
+    try {
+      const pageCount = await this._pdfProcessor.getPageCount(file);
+      this._extractSourceFile = file;
+      this._extractPageCount  = pageCount;
+      this._uiController.renderExtractFileInfo(file, pageCount);
+    } catch (error) {
+      this._uiController.showToast(`Erro ao abrir o arquivo: ${error.message}`, 'error');
+    }
+  }
+
+  /**
+   * Limpa o estado do painel de extração quando o usuário remove o arquivo.
+   */
+  _handleExtractFileRemoved() {
+    this._extractSourceFile = null;
+    this._extractPageCount  = 0;
+    this._uiController.clearExtractPanel();
+  }
+
+  /**
+   * Executa a extração de páginas e dispara o download do resultado.
+   * Valida os intervalos antes de iniciar o processamento.
+   */
+  async _handleExtractRequested() {
+    if (!this._extractSourceFile) {
+      this._uiController.showToast('Selecione um arquivo PDF primeiro.', 'error');
+      return;
+    }
+
+    const rangeText = this._uiController.getExtractPageRanges();
+    const { pages: pageIndices, errors } =
+      PageRangeParser.parse(rangeText, this._extractPageCount);
+
+    if (errors.length > 0) {
+      this._uiController.showToast(
+        'Corrija os erros no campo de páginas antes de extrair.',
+        'error'
+      );
+      return;
+    }
+
+    if (pageIndices.length === 0) {
+      this._uiController.showToast('Informe ao menos uma página para extrair.', 'error');
+      return;
+    }
+
+    this._uiController.setExtractProcessingState(true);
+    this._uiController.setExtractProgressState(true, 0, 'Iniciando extração…');
+
+    try {
+      const extractedPdfBytes = await this._pdfProcessor.extractPages(
+        this._extractSourceFile,
+        pageIndices,
+        (percentage) => {
+          this._uiController.setExtractProgressState(
+            true,
+            percentage,
+            `Extraindo páginas… ${percentage}%`
+          );
+        }
+      );
+
+      this._uiController.setExtractProgressState(true, 100, 'Finalizando…');
+
+      const outputFileName = this._uiController.getExtractOutputFileName();
+      this._downloadPdfFile(extractedPdfBytes, outputFileName);
+
+      const pageWord = pageIndices.length === 1 ? 'página extraída' : 'páginas extraídas';
+      this._uiController.showToast(
+        `${pageIndices.length} ${pageWord} com sucesso!`,
+        'success',
+        6000
+      );
+    } catch (error) {
+      this._uiController.showToast(`Erro: ${error.message}`, 'error', 6000);
+    } finally {
+      this._uiController.setExtractProcessingState(false);
+      setTimeout(() => this._uiController.setExtractProgressState(false), 600);
+    }
+  }
+
+  // ─── Helpers compartilhados ────────────────────────────────────────────────
 
   /**
    * Delega ao UIController a geração do nome do arquivo de saída,

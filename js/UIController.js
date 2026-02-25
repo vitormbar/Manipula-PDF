@@ -18,6 +18,9 @@ class UIController {
    */
   constructor(handlers) {
     this._handlers = handlers;
+    // Armazena o total de páginas do PDF aberto no painel de extração.
+    // Usado internamente para validar os intervalos em tempo real.
+    this._extractTotalPages = 0;
     this._elements = this._queryDomElements();
     this._attachEventListeners();
   }
@@ -186,8 +189,136 @@ class UIController {
       this._handlers.onMergeRequested();
     });
 
-    // Campos de nome do arquivo de saída
+    // Campos de nome do arquivo de saída (painel Unir PDFs)
     this._attachOutputSettingsListeners();
+
+    // Navegação entre painéis via sidebar
+    this._attachNavigationListeners();
+
+    // Painel Extrair Páginas
+    this._attachExtractPanelListeners();
+  }
+
+  // ─── Painel Extrair Páginas: métodos públicos ─────────────────────────────
+
+  /**
+   * Exibe as informações do arquivo carregado e revela a seção de configuração.
+   * Chamado pelo App após obter o total de páginas do PdfProcessor.
+   *
+   * @param {File}   file       - O arquivo PDF selecionado
+   * @param {number} pageCount  - Total de páginas do documento
+   */
+  renderExtractFileInfo(file, pageCount) {
+    this._extractTotalPages = pageCount;
+
+    this._elements.extractUploadZone.hidden  = true;
+    this._elements.extractFileInfo.hidden    = false;
+    this._elements.extractConfig.hidden      = false;
+    this._elements.extractPanelFooter.hidden = false;
+
+    this._elements.extractFileName.textContent    = file.name;
+    this._elements.extractFileDetails.textContent =
+      `${pageCount} página${pageCount !== 1 ? 's' : ''} · ${this._formatFileSize(file.size)}`;
+    this._elements.extractPageCountHint.textContent =
+      `— o arquivo tem ${pageCount} página${pageCount !== 1 ? 's' : ''}`;
+
+    // Garante campos limpos ao trocar de arquivo
+    this._elements.extractPageRanges.value      = '';
+    this._elements.extractCustomName.value      = '';
+    this._elements.extractRangeFeedback.textContent = '';
+    this._elements.extractRangeFeedback.className   = 'range-feedback';
+    this._updateExtractFilenamePreview();
+  }
+
+  /**
+   * Reseta o painel de extração para o estado inicial (zona de upload visível).
+   */
+  clearExtractPanel() {
+    this._extractTotalPages = 0;
+
+    this._elements.extractUploadZone.hidden  = false;
+    this._elements.extractFileInfo.hidden    = true;
+    this._elements.extractConfig.hidden      = true;
+    this._elements.extractPanelFooter.hidden = true;
+
+    this._elements.extractPageRanges.value      = '';
+    this._elements.extractCustomName.value      = '';
+    this._elements.extractRangeFeedback.textContent = '';
+    this._elements.extractRangeFeedback.className   = 'range-feedback';
+  }
+
+  /**
+   * Habilita ou desabilita os controles do painel de extração durante o processamento.
+   *
+   * @param {boolean} isProcessing
+   */
+  setExtractProcessingState(isProcessing) {
+    const elementsToToggle = [
+      this._elements.btnExtract,
+      this._elements.extractPageRanges,
+      this._elements.extractCustomName,
+      this._elements.extractBtnRemoveFile,
+    ];
+
+    for (const element of elementsToToggle) {
+      element.disabled = isProcessing;
+    }
+
+    this._elements.btnExtract.textContent = isProcessing
+      ? '⏳ Processando…'
+      : '✂️ Extrair Páginas';
+  }
+
+  /**
+   * Exibe ou oculta a barra de progresso do painel de extração.
+   *
+   * @param {boolean} isVisible
+   * @param {number}  percentage - 0 a 100
+   * @param {string}  label      - Texto descritivo
+   */
+  setExtractProgressState(isVisible, percentage = 0, label = '') {
+    this._elements.extractProgressContainer.hidden = !isVisible;
+    this._elements.extractProgressBarFill.style.width = `${percentage}%`;
+    this._elements.extractProgressLabel.textContent = label;
+  }
+
+  /**
+   * Exibe a mensagem de feedback abaixo do campo de intervalos.
+   *
+   * @param {string} message
+   * @param {'success'|'error'|'info'|'clear'} type
+   */
+  setExtractRangeFeedback(message, type) {
+    this._elements.extractRangeFeedback.textContent = message;
+    this._elements.extractRangeFeedback.className   =
+      type === 'clear' ? 'range-feedback' : `range-feedback is-${type}`;
+  }
+
+  /**
+   * Retorna o texto digitado no campo de intervalos de páginas.
+   *
+   * @returns {string}
+   */
+  getExtractPageRanges() {
+    return this._elements.extractPageRanges.value;
+  }
+
+  /**
+   * Retorna o nome de arquivo para o PDF extraído.
+   * Usa o campo personalizado se preenchido; caso contrário, gera um nome com data.
+   *
+   * @returns {string}
+   */
+  getExtractOutputFileName() {
+    const rawCustomName = this._elements.extractCustomName.value.trim();
+    const sanitized     = this._sanitizeForFilename(rawCustomName);
+
+    if (sanitized) {
+      return `${sanitized}.pdf`;
+    }
+
+    const today = new Date();
+    return `paginas-extraidas-${today.toISOString().slice(0, 10)}.pdf`;
   }
 
   // ─── Campos de saída: Nome, CPF e nome personalizado ──────────────────────
@@ -313,6 +444,145 @@ class UIController {
     return `documentos-unidos-${today.toISOString().slice(0, 10)}.pdf`;
   }
 
+  // ─── Navegação e painel Extrair Páginas: métodos privados ────────────────
+
+  /**
+   * Vincula os cliques nos itens da sidebar para alternar entre painéis.
+   * Cada `<li data-tool="X">` ativa o `<section id="panel-X">` correspondente.
+   */
+  _attachNavigationListeners() {
+    const allNavItems   = document.querySelectorAll('.nav-item[data-tool]');
+    const allToolPanels = document.querySelectorAll('.tool-panel');
+
+    for (const navItem of allNavItems) {
+      navItem.addEventListener('click', () => {
+        const targetToolId = navItem.dataset.tool;
+
+        allNavItems.forEach(item => item.classList.remove('active'));
+        navItem.classList.add('active');
+
+        allToolPanels.forEach(panel => panel.classList.remove('active'));
+        const targetPanel = document.getElementById(`panel-${targetToolId}`);
+        if (targetPanel) {
+          targetPanel.classList.add('active');
+        }
+      });
+    }
+  }
+
+  /**
+   * Vincula todos os event listeners do painel de extração.
+   */
+  _attachExtractPanelListeners() {
+    // Seleção via botão
+    this._elements.extractBtnSelectFile.addEventListener('click', () => {
+      this._elements.extractFileInput.click();
+    });
+
+    this._elements.extractFileInput.addEventListener('change', (event) => {
+      const selectedFiles = Array.from(event.target.files);
+      if (selectedFiles.length > 0) {
+        this._handlers.onExtractFileSelected(selectedFiles[0]);
+      }
+      event.target.value = ''; // Permite reselecionar o mesmo arquivo
+    });
+
+    // Clique na zona de upload
+    this._elements.extractUploadZone.addEventListener('click', (event) => {
+      const clickedOnSelectButton = event.target.closest('#extract-btn-select-file');
+      if (!clickedOnSelectButton) {
+        this._elements.extractFileInput.click();
+      }
+    });
+
+    // Acessibilidade: Enter/Espaço na zona de upload
+    this._elements.extractUploadZone.addEventListener('keydown', (event) => {
+      const isActivationKey = event.key === 'Enter' || event.key === ' ';
+      if (isActivationKey) {
+        event.preventDefault();
+        this._elements.extractFileInput.click();
+      }
+    });
+
+    // Drag & drop
+    this._elements.extractUploadZone.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      this._elements.extractUploadZone.classList.add('drag-over');
+    });
+
+    this._elements.extractUploadZone.addEventListener('dragleave', (event) => {
+      const isLeavingZone = !this._elements.extractUploadZone.contains(event.relatedTarget);
+      if (isLeavingZone) {
+        this._elements.extractUploadZone.classList.remove('drag-over');
+      }
+    });
+
+    this._elements.extractUploadZone.addEventListener('drop', (event) => {
+      event.preventDefault();
+      this._elements.extractUploadZone.classList.remove('drag-over');
+
+      const pdfFiles = Array.from(event.dataTransfer.files)
+        .filter(file => file.type === 'application/pdf');
+
+      if (pdfFiles.length > 0) {
+        this._handlers.onExtractFileSelected(pdfFiles[0]);
+      } else {
+        this.showToast('Apenas arquivos PDF são aceitos.', 'error');
+      }
+    });
+
+    // Remoção do arquivo
+    this._elements.extractBtnRemoveFile.addEventListener('click', () => {
+      this._handlers.onExtractFileRemoved();
+    });
+
+    // Campo de intervalo — validação em tempo real
+    this._elements.extractPageRanges.addEventListener('input', () => {
+      this._updateExtractRangeFeedback();
+    });
+
+    // Campo de nome personalizado — atualiza preview ao vivo
+    this._elements.extractCustomName.addEventListener('input', () => {
+      this._updateExtractFilenamePreview();
+    });
+
+    // Botão de extração
+    this._elements.btnExtract.addEventListener('click', () => {
+      this._handlers.onExtractRequested();
+    });
+  }
+
+  /**
+   * Atualiza o feedback de intervalo com base no texto atual do campo e no
+   * total de páginas armazenado, usando PageRangeParser para validação.
+   */
+  _updateExtractRangeFeedback() {
+    const rangeText = this._elements.extractPageRanges.value.trim();
+
+    if (!rangeText) {
+      this.setExtractRangeFeedback('', 'clear');
+      return;
+    }
+
+    const { pages, errors } = PageRangeParser.parse(rangeText, this._extractTotalPages);
+
+    if (errors.length > 0) {
+      this.setExtractRangeFeedback(`⚠ ${errors[0]}`, 'error');
+    } else if (pages.length > 0) {
+      const label = pages.length === 1 ? 'página selecionada' : 'páginas selecionadas';
+      this.setExtractRangeFeedback(`✓ ${pages.length} ${label}`, 'success');
+    } else {
+      this.setExtractRangeFeedback('', 'clear');
+    }
+  }
+
+  /**
+   * Atualiza o preview de nome do arquivo no painel de extração.
+   */
+  _updateExtractFilenamePreview() {
+    this._elements.extractFilenamePreview.textContent = this.getExtractOutputFileName();
+  }
+
   // ─── Construção de elementos ───────────────────────────────────────────────
 
   /**
@@ -370,7 +640,7 @@ class UIController {
       btnSortFiles:      document.getElementById('btn-sort-files'),
       btnClearFiles:     document.getElementById('btn-clear-files'),
       fileList:          document.getElementById('file-list'),
-      // Configurações do arquivo de saída
+      // Configurações do arquivo de saída (painel Unir PDFs)
       outputSettings:    document.getElementById('output-settings'),
       inputNome:         document.getElementById('input-nome'),
       inputCpf:          document.getElementById('input-cpf'),
@@ -382,6 +652,25 @@ class UIController {
       progressLabel:     document.getElementById('progress-label'),
       panelFooter:       document.getElementById('panel-footer'),
       btnMerge:          document.getElementById('btn-merge'),
+      // Painel Extrair Páginas
+      extractUploadZone:        document.getElementById('extract-upload-zone'),
+      extractFileInput:         document.getElementById('extract-file-input'),
+      extractBtnSelectFile:     document.getElementById('extract-btn-select-file'),
+      extractFileInfo:          document.getElementById('extract-file-info'),
+      extractFileName:          document.getElementById('extract-file-name'),
+      extractFileDetails:       document.getElementById('extract-file-details'),
+      extractBtnRemoveFile:     document.getElementById('extract-btn-remove-file'),
+      extractConfig:            document.getElementById('extract-config'),
+      extractPageCountHint:     document.getElementById('extract-page-count-hint'),
+      extractPageRanges:        document.getElementById('extract-page-ranges'),
+      extractRangeFeedback:     document.getElementById('extract-range-feedback'),
+      extractCustomName:        document.getElementById('extract-custom-name'),
+      extractFilenamePreview:   document.getElementById('extract-filename-preview'),
+      extractProgressContainer: document.getElementById('extract-progress-container'),
+      extractProgressBarFill:   document.getElementById('extract-progress-bar-fill'),
+      extractProgressLabel:     document.getElementById('extract-progress-label'),
+      extractPanelFooter:       document.getElementById('extract-panel-footer'),
+      btnExtract:               document.getElementById('btn-extract'),
       // Notificações
       toastContainer:    document.getElementById('toast-container'),
     };

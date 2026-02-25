@@ -60,6 +60,52 @@ class PdfProcessor {
   }
 
   /**
+   * Retorna a quantidade de páginas de um arquivo PDF.
+   * Útil para validar intervalos antes de chamar extractPages().
+   *
+   * @param {File} sourceFile
+   * @returns {Promise<number>}
+   */
+  async getPageCount(sourceFile) {
+    const fileBytes   = await this._readFileAsArrayBuffer(sourceFile);
+    const pdfDocument = await this._loadPdfDocument(fileBytes, sourceFile.name);
+    return pdfDocument.getPageCount();
+  }
+
+  /**
+   * Extrai páginas específicas de um PDF e retorna-as como um novo documento.
+   *
+   * As páginas são extraídas na ordem em que os índices são fornecidos,
+   * permitindo ao chamador controlar a sequência final.
+   *
+   * @param {File}     sourceFile               - O arquivo PDF de origem
+   * @param {number[]} zeroIndexedPageIndices    - Índices 0-based das páginas a extrair
+   * @param {function(number): void} onProgressUpdate - Callback de progresso (0–100)
+   * @returns {Promise<Uint8Array>} Bytes do novo PDF com apenas as páginas extraídas
+   * @throws {Error} Se nenhuma página for informada ou o arquivo for inválido
+   */
+  async extractPages(sourceFile, zeroIndexedPageIndices, onProgressUpdate) {
+    if (!zeroIndexedPageIndices || zeroIndexedPageIndices.length === 0) {
+      throw new Error('Nenhuma página selecionada para extração.');
+    }
+
+    const fileBytes      = await this._readFileAsArrayBuffer(sourceFile);
+    const sourceDocument = await this._loadPdfDocument(fileBytes, sourceFile.name);
+    const newDocument    = await PDFLib.PDFDocument.create();
+    const totalCount     = zeroIndexedPageIndices.length;
+
+    const copiedPages = await newDocument.copyPages(sourceDocument, zeroIndexedPageIndices);
+
+    for (let i = 0; i < copiedPages.length; i++) {
+      newDocument.addPage(copiedPages[i]);
+      const progressPercentage = Math.round(((i + 1) / totalCount) * 100);
+      onProgressUpdate(progressPercentage);
+    }
+
+    return newDocument.save();
+  }
+
+  /**
    * Lê um arquivo, o converte em documento pdf-lib e copia todas as suas
    * páginas para o documento de destino.
    *

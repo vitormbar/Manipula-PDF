@@ -21,6 +21,10 @@
               <span class="nav-icon">🔗</span>
               <span class="nav-label">Unir PDFs</span>
             </li>
+            <li class="nav-item" data-tool="extract">
+              <span class="nav-icon">✂️</span>
+              <span class="nav-label">Extrair Páginas</span>
+            </li>
             <!-- Futuras ferramentas serão adicionadas aqui -->
           </ul>
         </nav>
@@ -121,6 +125,98 @@
             </button>
           </div>
         </section>
+
+        <!-- Painel: Extrair Páginas -->
+        <section class="tool-panel" id="panel-extract">
+          <header class="panel-header">
+            <h1 class="panel-title">Extrair Páginas</h1>
+            <p class="panel-description">
+              Selecione um PDF e informe as páginas que deseja extrair.
+              Aceita páginas únicas e intervalos separados por vírgula:
+              <strong>1-10, 30-35, 38, 45-50</strong>
+            </p>
+          </header>
+
+          <!-- Zona de upload (arquivo único) -->
+          <div class="upload-zone" id="extract-upload-zone" role="button" tabindex="0"
+               aria-label="Arraste um PDF aqui ou clique para selecionar">
+            <div class="upload-zone-content">
+              <span class="upload-icon" aria-hidden="true">📂</span>
+              <p class="upload-primary-text">Arraste o arquivo PDF aqui</p>
+              <p class="upload-secondary-text">ou</p>
+              <button class="btn btn-secondary" id="extract-btn-select-file" type="button">
+                Selecionar Arquivo
+              </button>
+              <input type="file" id="extract-file-input" accept=".pdf" hidden />
+            </div>
+          </div>
+
+          <!-- Arquivo selecionado (visível após carregar o PDF) -->
+          <div class="extract-file-card" id="extract-file-info" hidden>
+            <span class="file-icon" aria-hidden="true">📄</span>
+            <div class="file-info">
+              <div class="file-name" id="extract-file-name">–</div>
+              <div class="file-size" id="extract-file-details">–</div>
+            </div>
+            <button class="btn btn-ghost btn-small btn-danger"
+                    id="extract-btn-remove-file" type="button"
+                    title="Remover arquivo e selecionar outro">
+              <span aria-hidden="true">🗑️</span> Remover
+            </button>
+          </div>
+
+          <!-- Configuração de extração (visível após carregar o PDF) -->
+          <div class="extract-config" id="extract-config" hidden>
+
+            <!-- Intervalo de páginas -->
+            <div class="field-group">
+              <label class="field-label" for="extract-page-ranges">
+                Páginas a extrair
+                <span class="field-hint" id="extract-page-count-hint"></span>
+              </label>
+              <input class="field-input extract-range-input"
+                     type="text" id="extract-page-ranges"
+                     placeholder="Ex.: 1-10, 30-35, 38, 45-50"
+                     autocomplete="off" spellcheck="false" />
+              <div class="range-feedback" id="extract-range-feedback"></div>
+            </div>
+
+            <!-- Nome do arquivo de saída -->
+            <div class="output-settings">
+              <h2 class="output-settings-title">Nome do arquivo</h2>
+              <div class="field-group">
+                <label class="field-label" for="extract-custom-name">
+                  Nome personalizado
+                  <span class="field-hint">— deixe em branco para usar o nome padrão</span>
+                </label>
+                <input class="field-input" type="text" id="extract-custom-name"
+                       placeholder="Ex.: paginas-extraidas" autocomplete="off" />
+              </div>
+              <div class="filename-preview">
+                <span class="preview-icon" aria-hidden="true">💾</span>
+                <span class="preview-text">Salvar como: </span>
+                <strong class="preview-value" id="extract-filename-preview">paginas-extraidas.pdf</strong>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Barra de progresso -->
+          <div class="progress-container" id="extract-progress-container" hidden>
+            <div class="progress-label" id="extract-progress-label">Processando…</div>
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" id="extract-progress-bar-fill"></div>
+            </div>
+          </div>
+
+          <!-- Botão de ação principal -->
+          <div class="panel-footer" id="extract-panel-footer" hidden>
+            <button class="btn btn-primary btn-large" id="btn-extract" type="button">
+              <span aria-hidden="true">✂️</span> Extrair Páginas
+            </button>
+          </div>
+        </section>
+
       </main>
     </div>
 
@@ -131,6 +227,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 
     <!-- Módulos da aplicação (ordem importa: dependências antes dos consumidores) -->
+    <script src="js/PageRangeParser.js"></script>
     <script src="js/FileManager.js"></script>
     <script src="js/PdfProcessor.js"></script>
     <script src="js/UIController.js"></script>

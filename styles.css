@@ -606,6 +606,48 @@ button {
 }
 
 /* ============================================================
+   Painel Extrair Páginas
+   ============================================================ */
+
+/* Card do arquivo selecionado (versão de item único, sem lista) */
+.extract-file-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Área de configuração (aparece após o arquivo ser carregado) */
+.extract-config {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Campo de intervalo usa fonte monoespaçada para facilitar leitura de números */
+.extract-range-input {
+  font-family: 'Courier New', Courier, monospace;
+  letter-spacing: 0.04em;
+}
+
+/* Feedback de validação abaixo do campo de intervalo */
+.range-feedback {
+  min-height: 18px; /* Reserva espaço para evitar layout shift ao aparecer */
+  font-size: 12px;
+  font-weight: 500;
+  padding-top: 3px;
+  transition: color var(--transition-fast);
+}
+
+.range-feedback.is-success { color: var(--color-success); }
+.range-feedback.is-error   { color: var(--color-danger); }
+.range-feedback.is-info    { color: var(--color-text-secondary); }
+
+/* ============================================================
    Responsividade básica
    ============================================================ */
 @media (max-width: 680px) {
