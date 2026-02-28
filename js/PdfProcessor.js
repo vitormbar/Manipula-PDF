@@ -25,7 +25,11 @@ class PdfProcessor {
    * @returns {Promise<Uint8Array>} Bytes do PDF resultante
    * @throws {Error} Se nenhum arquivo for fornecido ou se algum não for um PDF válido
    */
-  async mergePdfs(orderedPdfFiles, onProgressUpdate) {
+  /**
+   * @param {boolean} useObjectStreams - Se true, salva com compressão deflate nos
+   *        object streams, reduzindo o tamanho estrutural sem alterar conteúdo.
+   */
+  async mergePdfs(orderedPdfFiles, onProgressUpdate, useObjectStreams = false) {
     this._validateMergeInput(orderedPdfFiles);
 
     const mergedDocument = await PDFLib.PDFDocument.create();
@@ -40,7 +44,45 @@ class PdfProcessor {
       onProgressUpdate(progressPercentage);
     }
 
-    return mergedDocument.save();
+    return mergedDocument.save({ useObjectStreams });
+  }
+
+  /**
+   * Comprime um PDF por otimização estrutural: aplica deflate nos object streams
+   * e remove metadados redundantes (título, autor, criador, produtor, palavras-chave).
+   *
+   * O conteúdo das páginas, as fontes e as imagens existentes não são alterados,
+   * portanto o texto permanece pesquisável e os glifos vetoriais intactos.
+   *
+   * Ganho típico: 5–40 % em PDFs não comprimidos; mínimo em PDFs já otimizados.
+   *
+   * @param {File}                      sourceFile       - Arquivo PDF de origem
+   * @param {function(number): void}    onProgressUpdate - Callback de progresso (0–100)
+   * @returns {Promise<Uint8Array>} Bytes do PDF otimizado
+   */
+  async compressStructural(sourceFile, onProgressUpdate) {
+    const fileBytes      = await this._readFileAsArrayBuffer(sourceFile);
+    const sourceDocument = await this._loadPdfDocument(fileBytes, sourceFile.name);
+
+    onProgressUpdate(30);
+
+    // Remove metadados que não agregam valor ao conteúdo e aumentam o arquivo.
+    // Strings vazias apagam os campos sem deixar entradas desnecessárias.
+    sourceDocument.setTitle('');
+    sourceDocument.setAuthor('');
+    sourceDocument.setSubject('');
+    sourceDocument.setKeywords([]);
+    sourceDocument.setCreator('');
+    sourceDocument.setProducer('');
+
+    onProgressUpdate(60);
+
+    // useObjectStreams ativa a compressão deflate na tabela de referências
+    // cruzadas e nos streams de objetos — o principal ganho desta operação.
+    const compressedBytes = await sourceDocument.save({ useObjectStreams: true });
+
+    onProgressUpdate(100);
+    return compressedBytes;
   }
 
   // ─── Métodos privados ──────────────────────────────────────────────────────

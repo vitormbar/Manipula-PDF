@@ -20,6 +20,10 @@ class App {
     this._extractSourceFile = null;
     this._extractPageCount  = 0;
 
+    // Estado do painel de compressão.
+    this._compressSourceFile = null;
+    this._compressPageCount  = 0;
+
     // Estado do painel de organização.
     // `_organizePageStates` rastreia a ordem atual e a rotação adicional de cada
     // página: [{originalIndex: number, rotation: number}].
@@ -61,6 +65,10 @@ class App {
       onOrganizeResetRequested:         ()                    => this._handleOrganizeResetRequested(),
       onOrganizeDeleteSelectedRequested:(selectedPositions)  => this._handleOrganizeDeleteSelected(selectedPositions),
       onOrganizeRequested:              ()                   => this._handleOrganizeRequested(),
+      // Painel: Comprimir PDF
+      onCompressFileSelected: (file) => this._handleCompressFileSelected(file),
+      onCompressFileRemoved:  ()     => this._handleCompressFileRemoved(),
+      onCompressRequested:    ()     => this._handleCompressRequested(),
     });
   }
 
@@ -154,6 +162,8 @@ class App {
     this._uiController.setProcessingState(true);
     this._uiController.setProgressState(true, 0, 'Iniciando processamento…');
 
+    const useCompression = this._uiController.getMergeCompressOption();
+
     try {
       const mergedPdfBytes = await this._pdfProcessor.mergePdfs(
         filesToMerge,
@@ -163,7 +173,8 @@ class App {
             percentage,
             `Processando… ${percentage}%`
           );
-        }
+        },
+        useCompression
       );
 
       this._uiController.setProgressState(true, 100, 'Finalizando…');
@@ -463,6 +474,189 @@ class App {
       this._uiController.setOrganizeProcessingState(false);
       setTimeout(() => this._uiController.setOrganizeProgressState(false), 600);
     }
+  }
+
+  // ─── Handlers do painel: Comprimir PDF ────────────────────────────────────
+
+  /**
+   * Carrega o PDF selecionado e revela as opções de compressão.
+   *
+   * @param {File} file
+   */
+  async _handleCompressFileSelected(file) {
+    if (file.type !== 'application/pdf') {
+      this._uiController.showToast('Apenas arquivos PDF são aceitos.', 'error');
+      return;
+    }
+
+    try {
+      const pageCount = await this._pdfProcessor.getPageCount(file);
+      this._compressSourceFile = file;
+      this._compressPageCount  = pageCount;
+      this._uiController.renderCompressFileInfo(file, pageCount);
+    } catch (error) {
+      this._uiController.showToast(`Erro ao abrir o arquivo: ${error.message}`, 'error');
+    }
+  }
+
+  /**
+   * Limpa o estado do painel de compressão quando o usuário remove o arquivo.
+   */
+  _handleCompressFileRemoved() {
+    this._compressSourceFile = null;
+    this._compressPageCount  = 0;
+    this._uiController.clearCompressPanel();
+  }
+
+  /**
+   * Executa a compressão no modo selecionado e dispara o download.
+   *
+   * No modo agressivo, se a rasterização resultar em arquivo maior que o
+   * original (comum em PDFs de texto/vetores), recai automaticamente em
+   * compressão estrutural e informa o usuário — evitando downloads maiores.
+   *
+   * Ao concluir, exibe a porcentagem de redução e o modo efetivamente usado.
+   */
+  async _handleCompressRequested() {
+    if (!this._compressSourceFile) {
+      this._uiController.showToast('Selecione um arquivo PDF primeiro.', 'error');
+      return;
+    }
+
+    const mode = this._uiController.getCompressMode();
+
+    this._uiController.setCompressProcessingState(true);
+    this._uiController.setCompressProgressState(true, 0, 'Iniciando compressão…');
+
+    try {
+      let compressedBytes;
+      let usedFallback = false;
+
+      if (mode === 'structural') {
+        compressedBytes = await this._pdfProcessor.compressStructural(
+          this._compressSourceFile,
+          (percentage) => this._uiController.setCompressProgressState(
+            true, percentage, `Comprimindo… ${percentage}%`
+          )
+        );
+      } else {
+        const quality = this._uiController.getCompressQuality();
+        compressedBytes = await this._compressAggressively(
+          this._compressSourceFile,
+          quality,
+          (percentage) => this._uiController.setCompressProgressState(
+            true, percentage, `Rasterizando páginas… ${percentage}%`
+          )
+        );
+
+        // Guarda de tamanho: PDFs de texto/vetores podem ficar maiores após
+        // rasterização, pois a representação em JPEG supera o custo do vetor.
+        // Nesse caso, recai em compressão estrutural automaticamente.
+        if (compressedBytes.byteLength >= this._compressSourceFile.size) {
+          usedFallback = true;
+          this._uiController.setCompressProgressState(
+            true, 0, 'Rasterização não reduziu o arquivo. Aplicando compressão estrutural…'
+          );
+          compressedBytes = await this._pdfProcessor.compressStructural(
+            this._compressSourceFile,
+            (percentage) => this._uiController.setCompressProgressState(
+              true, percentage, `Comprimindo estrutura… ${percentage}%`
+            )
+          );
+        }
+      }
+
+      this._uiController.setCompressProgressState(true, 100, 'Finalizando…');
+
+      const outputFileName  = this._uiController.getCompressOutputFileName();
+      this._downloadPdfFile(compressedBytes, outputFileName);
+
+      const originalSize   = this._compressSourceFile.size;
+      const compressedSize = compressedBytes.byteLength;
+      const reductionPct   = Math.round((1 - compressedSize / originalSize) * 100);
+      const sizeResult     = reductionPct > 0
+        ? `${reductionPct}% menor`
+        : 'sem redução significativa (arquivo já otimizado)';
+
+      const fallbackNote = usedFallback
+        ? ' O arquivo é baseado em texto/vetores — modo estrutural foi aplicado automaticamente.'
+        : '';
+
+      this._uiController.showToast(
+        `PDF comprimido com sucesso! (${sizeResult})${fallbackNote}`,
+        'success',
+        8000
+      );
+    } catch (error) {
+      this._uiController.showToast(`Erro: ${error.message}`, 'error', 6000);
+    } finally {
+      this._uiController.setCompressProcessingState(false);
+      setTimeout(() => this._uiController.setCompressProgressState(false), 600);
+    }
+  }
+
+  /**
+   * Comprime um PDF rasterizando cada página como imagem JPEG.
+   *
+   * Usa escala 1.0 (72 DPI — resolução nativa do PDF) para não ampliar o canvas.
+   * Renderizar em DPI maior do que o nativo upsamplaria o conteúdo, produzindo
+   * imagens maiores sem ganho perceptível, o que é o oposto da compressão.
+   * Para PDFs com imagens embedadas em alta resolução (ex: scans a 300 DPI),
+   * a escala 1.0 já provoca downsampling efetivo antes da compressão JPEG.
+   *
+   * A rotação inerente do PDF é respeitada. CMYK é convertido para RGB
+   * automaticamente pelo motor de renderização do canvas.
+   *
+   * @param {File}                   file             - Arquivo PDF de origem
+   * @param {number}                 quality          - Qualidade JPEG (0.0–1.0)
+   * @param {function(number): void} onProgressUpdate - Callback de progresso (0–100)
+   * @returns {Promise<Uint8Array>} Bytes do PDF rasterizado
+   */
+  async _compressAggressively(file, quality, onProgressUpdate) {
+    if (typeof pdfjsLib === 'undefined') {
+      throw new Error(
+        'PDF.js não está disponível. Recarregue a página e tente novamente.'
+      );
+    }
+
+    // Escala 1.0 = renderiza em 72 DPI (resolução nativa do PDF).
+    // Não faz sentido ampliar o canvas para comprimir: um canvas maior
+    // gera imagens maiores e, portanto, arquivos maiores.
+    const RENDER_SCALE = 1.0;
+
+    const arrayBuffer = await file.arrayBuffer();
+    const pdfJsDoc    = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const totalPages  = pdfJsDoc.numPages;
+    const newDocument = await PDFLib.PDFDocument.create();
+
+    for (let pageNumber = 1; pageNumber <= totalPages; pageNumber++) {
+      const page             = await pdfJsDoc.getPage(pageNumber);
+      const inherentRotation = page.rotate ?? 0;
+
+      // Renderiza com a rotação inerente já aplicada para que o canvas
+      // reflita exatamente o que o usuário vê no leitor de PDF.
+      const renderViewport = page.getViewport({ scale: RENDER_SCALE, rotation: inherentRotation });
+      const canvas         = document.createElement('canvas');
+      canvas.width         = renderViewport.width;
+      canvas.height        = renderViewport.height;
+
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: renderViewport }).promise;
+
+      // toDataURL('image/jpeg') converte automaticamente para RGB (CMYK→RGB incluso).
+      const jpegDataUrl = canvas.toDataURL('image/jpeg', quality);
+      const jpegBase64  = jpegDataUrl.split(',')[1];
+      const jpegBytes   = Uint8Array.from(atob(jpegBase64), c => c.charCodeAt(0));
+
+      const jpegImage = await newDocument.embedJpg(jpegBytes);
+
+      // A escala 1.0 garante que pixels == pontos PDF, então não há conversão necessária.
+      const newPage = newDocument.addPage([canvas.width, canvas.height]);
+      newPage.drawImage(jpegImage, { x: 0, y: 0, width: canvas.width, height: canvas.height });
+
+      onProgressUpdate(Math.round((pageNumber / totalPages) * 100));
+    }
+
+    return newDocument.save({ useObjectStreams: true });
   }
 
   /**

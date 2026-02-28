@@ -205,6 +205,9 @@ class UIController {
 
     // Painel Organizar Páginas
     this._attachOrganizePanelListeners();
+
+    // Painel Comprimir PDF
+    this._attachCompressPanelListeners();
   }
 
   // ─── Painel Extrair Páginas: métodos públicos ─────────────────────────────
@@ -725,6 +728,123 @@ class UIController {
     imgEl.style.display = '';
   }
 
+  // ─── Painel Comprimir PDF: métodos públicos ───────────────────────────────
+
+  /**
+   * Exibe o card do arquivo carregado e revela as opções de compressão.
+   *
+   * @param {File}   file      - O arquivo PDF selecionado
+   * @param {number} pageCount - Total de páginas do documento
+   */
+  renderCompressFileInfo(file, pageCount) {
+    this._elements.compressUploadZone.hidden   = true;
+    this._elements.compressFileInfo.hidden     = false;
+    this._elements.compressConfig.hidden       = false;
+    this._elements.compressPanelFooter.hidden  = false;
+
+    this._elements.compressFileName.textContent    = file.name;
+    this._elements.compressFileDetails.textContent =
+      `${pageCount} página${pageCount !== 1 ? 's' : ''} · ${this._formatFileSize(file.size)}`;
+
+    this._elements.compressCustomName.value = '';
+    this._updateCompressFilenamePreview();
+  }
+
+  /**
+   * Reseta o painel de compressão para o estado inicial.
+   */
+  clearCompressPanel() {
+    this._elements.compressUploadZone.hidden  = false;
+    this._elements.compressFileInfo.hidden    = true;
+    this._elements.compressConfig.hidden      = true;
+    this._elements.compressPanelFooter.hidden = true;
+
+    this._elements.compressCustomName.value      = '';
+    this._elements.compressModeStructural.checked = true;
+    this._elements.compressQualityGroup.hidden    = true;
+  }
+
+  /**
+   * Habilita ou desabilita os controles do painel durante o processamento.
+   *
+   * @param {boolean} isProcessing
+   */
+  setCompressProcessingState(isProcessing) {
+    const elementsToToggle = [
+      this._elements.btnCompress,
+      this._elements.compressBtnRemoveFile,
+      this._elements.compressModeStructural,
+      this._elements.compressModeAggressive,
+      this._elements.compressQuality,
+      this._elements.compressCustomName,
+    ];
+
+    for (const element of elementsToToggle) {
+      element.disabled = isProcessing;
+    }
+
+    this._elements.btnCompress.innerHTML = isProcessing
+      ? '⏳ Processando…'
+      : '<span aria-hidden="true">📦</span> Comprimir PDF';
+  }
+
+  /**
+   * Exibe ou oculta a barra de progresso do painel de compressão.
+   *
+   * @param {boolean} isVisible
+   * @param {number}  percentage - 0 a 100
+   * @param {string}  label      - Texto descritivo
+   */
+  setCompressProgressState(isVisible, percentage = 0, label = '') {
+    this._elements.compressProgressContainer.hidden = !isVisible;
+    this._elements.compressProgressBarFill.style.width = `${percentage}%`;
+    this._elements.compressProgressLabel.textContent = label;
+  }
+
+  /**
+   * Retorna o modo de compressão selecionado pelo usuário.
+   *
+   * @returns {'structural'|'aggressive'}
+   */
+  getCompressMode() {
+    return this._elements.compressModeAggressive.checked ? 'aggressive' : 'structural';
+  }
+
+  /**
+   * Retorna a qualidade JPEG selecionada (usada apenas no modo agressivo).
+   *
+   * @returns {number} Valor entre 0.0 e 1.0
+   */
+  getCompressQuality() {
+    return parseFloat(this._elements.compressQuality.value);
+  }
+
+  /**
+   * Retorna o nome de arquivo para o PDF comprimido.
+   *
+   * @returns {string}
+   */
+  getCompressOutputFileName() {
+    const rawCustomName = this._elements.compressCustomName.value.trim();
+    const sanitized     = this._sanitizeForFilename(rawCustomName);
+
+    if (sanitized) {
+      return `${sanitized}.pdf`;
+    }
+
+    const today = new Date();
+    return `documento-comprimido-${today.toISOString().slice(0, 10)}.pdf`;
+  }
+
+  /**
+   * Retorna se a compressão estrutural está ativada no painel Unir PDFs.
+   *
+   * @returns {boolean}
+   */
+  getMergeCompressOption() {
+    return this._elements.mergeCompressEnabled.checked;
+  }
+
   // ─── Painel Organizar Páginas: métodos privados ───────────────────────────
 
   /**
@@ -837,6 +957,101 @@ class UIController {
 
     // Drag-and-drop dos cartões de página (delegação no grid persistente)
     this._attachPageCardDragHandlers(this._elements.organizePageGrid);
+  }
+
+  // ─── Painel Comprimir PDF: métodos privados ───────────────────────────────
+
+  /**
+   * Vincula todos os event listeners do painel de compressão.
+   */
+  _attachCompressPanelListeners() {
+    // Seleção via botão
+    this._elements.compressBtnSelectFile.addEventListener('click', () => {
+      this._elements.compressFileInput.click();
+    });
+
+    this._elements.compressFileInput.addEventListener('change', (event) => {
+      const selectedFiles = Array.from(event.target.files);
+      if (selectedFiles.length > 0) {
+        this._handlers.onCompressFileSelected(selectedFiles[0]);
+      }
+      event.target.value = '';
+    });
+
+    // Clique na zona de upload
+    this._elements.compressUploadZone.addEventListener('click', (event) => {
+      const clickedOnSelectButton = event.target.closest('#compress-btn-select-file');
+      if (!clickedOnSelectButton) {
+        this._elements.compressFileInput.click();
+      }
+    });
+
+    // Acessibilidade: Enter/Espaço na zona de upload
+    this._elements.compressUploadZone.addEventListener('keydown', (event) => {
+      const isActivationKey = event.key === 'Enter' || event.key === ' ';
+      if (isActivationKey) {
+        event.preventDefault();
+        this._elements.compressFileInput.click();
+      }
+    });
+
+    // Drag & drop
+    this._elements.compressUploadZone.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      this._elements.compressUploadZone.classList.add('drag-over');
+    });
+
+    this._elements.compressUploadZone.addEventListener('dragleave', (event) => {
+      const isLeavingZone = !this._elements.compressUploadZone.contains(event.relatedTarget);
+      if (isLeavingZone) {
+        this._elements.compressUploadZone.classList.remove('drag-over');
+      }
+    });
+
+    this._elements.compressUploadZone.addEventListener('drop', (event) => {
+      event.preventDefault();
+      this._elements.compressUploadZone.classList.remove('drag-over');
+
+      const pdfFiles = Array.from(event.dataTransfer.files)
+        .filter(file => file.type === 'application/pdf');
+
+      if (pdfFiles.length > 0) {
+        this._handlers.onCompressFileSelected(pdfFiles[0]);
+      } else {
+        this.showToast('Apenas arquivos PDF são aceitos.', 'error');
+      }
+    });
+
+    // Remoção do arquivo
+    this._elements.compressBtnRemoveFile.addEventListener('click', () => {
+      this._handlers.onCompressFileRemoved();
+    });
+
+    // Alternância de modo: mostra/oculta o seletor de qualidade
+    const toggleQualityGroup = () => {
+      this._elements.compressQualityGroup.hidden =
+        !this._elements.compressModeAggressive.checked;
+    };
+
+    this._elements.compressModeStructural.addEventListener('change', toggleQualityGroup);
+    this._elements.compressModeAggressive.addEventListener('change', toggleQualityGroup);
+
+    // Preview do nome em tempo real
+    this._elements.compressCustomName.addEventListener('input', () => {
+      this._updateCompressFilenamePreview();
+    });
+
+    // Botão principal
+    this._elements.btnCompress.addEventListener('click', () => {
+      this._handlers.onCompressRequested();
+    });
+  }
+
+  /**
+   * Atualiza o preview do nome de arquivo no painel de compressão.
+   */
+  _updateCompressFilenamePreview() {
+    this._elements.compressFilenamePreview.textContent = this.getCompressOutputFileName();
   }
 
   /**
@@ -1147,6 +1362,28 @@ class UIController {
       organizeProgressLabel:     document.getElementById('organize-progress-label'),
       organizePanelFooter:       document.getElementById('organize-panel-footer'),
       btnOrganize:               document.getElementById('btn-organize'),
+      // Painel Comprimir PDF
+      compressUploadZone:        document.getElementById('compress-upload-zone'),
+      compressFileInput:         document.getElementById('compress-file-input'),
+      compressBtnSelectFile:     document.getElementById('compress-btn-select-file'),
+      compressFileInfo:          document.getElementById('compress-file-info'),
+      compressFileName:          document.getElementById('compress-file-name'),
+      compressFileDetails:       document.getElementById('compress-file-details'),
+      compressBtnRemoveFile:     document.getElementById('compress-btn-remove-file'),
+      compressConfig:            document.getElementById('compress-config'),
+      compressModeStructural:    document.getElementById('compress-mode-structural'),
+      compressModeAggressive:    document.getElementById('compress-mode-aggressive'),
+      compressQualityGroup:      document.getElementById('compress-quality-group'),
+      compressQuality:           document.getElementById('compress-quality'),
+      compressCustomName:        document.getElementById('compress-custom-name'),
+      compressFilenamePreview:   document.getElementById('compress-filename-preview'),
+      compressProgressContainer: document.getElementById('compress-progress-container'),
+      compressProgressBarFill:   document.getElementById('compress-progress-bar-fill'),
+      compressProgressLabel:     document.getElementById('compress-progress-label'),
+      compressPanelFooter:       document.getElementById('compress-panel-footer'),
+      btnCompress:               document.getElementById('btn-compress'),
+      // Painel Unir PDFs — opção de compressão
+      mergeCompressEnabled:      document.getElementById('merge-compress-enabled'),
       // Notificações
       toastContainer:    document.getElementById('toast-container'),
     };
