@@ -25,6 +25,10 @@
               <span class="nav-icon">✂️</span>
               <span class="nav-label">Extrair Páginas</span>
             </li>
+            <li class="nav-item" data-tool="organize">
+              <span class="nav-icon">🔀</span>
+              <span class="nav-label">Organizar Páginas</span>
+            </li>
             <!-- Futuras ferramentas serão adicionadas aqui -->
           </ul>
         </nav>
@@ -217,6 +221,113 @@
           </div>
         </section>
 
+        <!-- Painel: Organizar Páginas -->
+        <section class="tool-panel" id="panel-organize">
+          <header class="panel-header">
+            <h1 class="panel-title">Organizar Páginas</h1>
+            <p class="panel-description">
+              Carregue um PDF, reordene as páginas arrastando os cartões e
+              gire-as individualmente com ↺↻. A ordem e rotação dos cartões
+              definem o documento final.
+            </p>
+          </header>
+
+          <!-- Zona de upload -->
+          <div class="upload-zone" id="organize-upload-zone" role="button" tabindex="0"
+               aria-label="Arraste um PDF aqui ou clique para selecionar">
+            <div class="upload-zone-content">
+              <span class="upload-icon" aria-hidden="true">📂</span>
+              <p class="upload-primary-text">Arraste o arquivo PDF aqui</p>
+              <p class="upload-secondary-text">ou</p>
+              <button class="btn btn-secondary" id="organize-btn-select-file" type="button">
+                Selecionar Arquivo
+              </button>
+              <input type="file" id="organize-file-input" accept=".pdf" hidden />
+            </div>
+          </div>
+
+          <!-- Card do arquivo selecionado -->
+          <div class="extract-file-card" id="organize-file-info" hidden>
+            <span class="file-icon" aria-hidden="true">📄</span>
+            <div class="file-info">
+              <div class="file-name" id="organize-file-name">–</div>
+              <div class="file-size" id="organize-file-details">–</div>
+            </div>
+            <button class="btn btn-ghost btn-small btn-danger"
+                    id="organize-btn-remove-file" type="button"
+                    title="Remover arquivo e selecionar outro">
+              <span aria-hidden="true">🗑️</span> Remover
+            </button>
+          </div>
+
+          <!-- Área de configuração (visível após carregar o PDF) -->
+          <div class="organize-config" id="organize-config" hidden>
+
+            <!-- Barra de controles do grid -->
+            <div class="organize-toolbar">
+              <span class="organize-hint">
+                Arraste para reordenar · ↺↻ para girar · ←→ para mover · ☑ para selecionar
+              </span>
+              <div class="organize-toolbar-actions">
+                <button class="btn btn-ghost btn-small btn-danger"
+                        id="organize-btn-delete-selected" type="button" hidden
+                        title="Excluir as páginas selecionadas">
+                  <span aria-hidden="true">🗑️</span>
+                  Excluir (<span id="organize-selected-count">0</span>)
+                </button>
+                <button class="btn btn-ghost btn-small" id="organize-btn-reset" type="button"
+                        title="Restaurar ordem e rotação originais do documento">
+                  Redefinir
+                </button>
+                <div class="zoom-controls" aria-label="Tamanho das miniaturas">
+                  <button class="btn btn-ghost btn-small zoom-btn" id="organize-btn-zoom-out"
+                          title="Diminuir miniaturas" aria-label="Diminuir tamanho das miniaturas">−</button>
+                  <button class="btn btn-ghost btn-small zoom-btn" id="organize-btn-zoom-in"
+                          title="Aumentar miniaturas" aria-label="Aumentar tamanho das miniaturas">+</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Grid de cartões de página -->
+            <div class="page-grid" id="organize-page-grid" role="list"
+                 aria-label="Páginas do documento — arraste para reordenar"></div>
+
+            <!-- Nome do arquivo de saída -->
+            <div class="output-settings">
+              <h2 class="output-settings-title">Nome do arquivo</h2>
+              <div class="field-group">
+                <label class="field-label" for="organize-custom-name">
+                  Nome personalizado
+                  <span class="field-hint">— deixe em branco para usar o nome padrão</span>
+                </label>
+                <input class="field-input" type="text" id="organize-custom-name"
+                       placeholder="Ex.: documento-organizado" autocomplete="off" />
+              </div>
+              <div class="filename-preview">
+                <span class="preview-icon" aria-hidden="true">💾</span>
+                <span class="preview-text">Salvar como: </span>
+                <strong class="preview-value" id="organize-filename-preview">documento-organizado.pdf</strong>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Barra de progresso -->
+          <div class="progress-container" id="organize-progress-container" hidden>
+            <div class="progress-label" id="organize-progress-label">Processando…</div>
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" id="organize-progress-bar-fill"></div>
+            </div>
+          </div>
+
+          <!-- Botão de ação principal -->
+          <div class="panel-footer" id="organize-panel-footer" hidden>
+            <button class="btn btn-primary btn-large" id="btn-organize" type="button">
+              <span aria-hidden="true">💾</span> Salvar PDF
+            </button>
+          </div>
+        </section>
+
       </main>
     </div>
 
@@ -225,6 +336,8 @@
 
     <!-- Dependência: pdf-lib para manipulação de PDFs no navegador -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <!-- Dependência: PDF.js para renderizar miniaturas das páginas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
     <!-- Módulos da aplicação (ordem importa: dependências antes dos consumidores) -->
     <script src="js/PageRangeParser.js"></script>

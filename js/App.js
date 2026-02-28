@@ -20,6 +20,26 @@ class App {
     this._extractSourceFile = null;
     this._extractPageCount  = 0;
 
+    // Estado do painel de organização.
+    // `_organizePageStates` rastreia a ordem atual e a rotação adicional de cada
+    // página: [{originalIndex: number, rotation: number}].
+    this._organizeSourceFile     = null;
+    this._organizePageCount      = 0;
+    this._organizePageStates     = [];
+    // `_organizeBaseThumbnails` armazena as miniaturas na orientação original
+    // (rotação=0), renderizadas uma única vez ao carregar o arquivo.
+    // Usadas para restaurar o estado visual no "Redefinir" sem nova renderização.
+    this._organizeBaseThumbnails = new Map(); // Map<originalIndex, dataUrl>
+    this._organizeThumbnails     = new Map(); // Map<originalIndex, dataUrl> — estado atual
+    this._organizePdfJsDoc       = null;      // Documento PDF.js (reusado para re-renderizar)
+
+    // Configura o worker do PDF.js para renderização offscreen das miniaturas.
+    // O worker isola o processamento pesado em uma thread separada.
+    if (typeof pdfjsLib !== 'undefined') {
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
     // O UIController recebe os handlers como injeção de dependência,
     // seguindo o princípio de Inversão de Dependência (SOLID - D).
     this._uiController = new UIController({
@@ -33,6 +53,14 @@ class App {
       onExtractFileSelected: (file) => this._handleExtractFileSelected(file),
       onExtractFileRemoved:  ()     => this._handleExtractFileRemoved(),
       onExtractRequested:    ()     => this._handleExtractRequested(),
+      // Painel: Organizar Páginas
+      onOrganizeFileSelected: (file)                    => this._handleOrganizeFileSelected(file),
+      onOrganizeFileRemoved:  ()                        => this._handleOrganizeFileRemoved(),
+      onOrganizePageRotated:  (position, direction)     => this._handleOrganizePageRotated(position, direction),
+      onOrganizePageMoved:    (fromPosition, toPosition)=> this._handleOrganizePageMoved(fromPosition, toPosition),
+      onOrganizeResetRequested:         ()                    => this._handleOrganizeResetRequested(),
+      onOrganizeDeleteSelectedRequested:(selectedPositions)  => this._handleOrganizeDeleteSelected(selectedPositions),
+      onOrganizeRequested:              ()                   => this._handleOrganizeRequested(),
     });
   }
 
@@ -258,6 +286,274 @@ class App {
       this._uiController.setExtractProcessingState(false);
       setTimeout(() => this._uiController.setExtractProgressState(false), 600);
     }
+  }
+
+  // ─── Handlers do painel: Organizar Páginas ────────────────────────────────
+
+  /**
+   * Carrega o PDF e inicializa o estado de cada página na ordem original,
+   * sem rotação adicional.
+   *
+   * @param {File} file
+   */
+  async _handleOrganizeFileSelected(file) {
+    if (file.type !== 'application/pdf') {
+      this._uiController.showToast('Apenas arquivos PDF são aceitos.', 'error');
+      return;
+    }
+
+    try {
+      const pageCount = await this._pdfProcessor.getPageCount(file);
+
+      this._organizeSourceFile     = file;
+      this._organizePageCount      = pageCount;
+      this._organizePageStates     = this._buildInitialPageStates(pageCount);
+      this._organizeBaseThumbnails = new Map();
+      this._organizeThumbnails     = new Map();
+      this._organizePdfJsDoc       = null;
+
+      this._uiController.renderOrganizeFileInfo(file, pageCount);
+      this._uiController.renderOrganizePageGrid(this._organizePageStates, this._organizeThumbnails);
+
+      // Renderiza miniaturas em segundo plano — não bloqueia a interface.
+      // Os cartões atualizam progressivamente à medida que cada página é processada.
+      this._renderOrganizeThumbnailsInBackground(file);
+    } catch (error) {
+      this._uiController.showToast(`Erro ao abrir o arquivo: ${error.message}`, 'error');
+    }
+  }
+
+  /**
+   * Limpa todo o estado do painel de organização.
+   */
+  _handleOrganizeFileRemoved() {
+    this._organizeSourceFile     = null;
+    this._organizePageCount      = 0;
+    this._organizePageStates     = [];
+    // Libera referências para permitir garbage collection do documento PDF.js
+    this._organizePdfJsDoc       = null;
+    this._organizeBaseThumbnails = new Map();
+    this._organizeThumbnails     = new Map();
+    this._uiController.clearOrganizePanel();
+  }
+
+  /**
+   * Aplica uma rotação de ±90° na página da posição indicada.
+   *
+   * @param {number} position  - Posição atual da página no grid (0-based)
+   * @param {'left'|'right'} direction - Sentido da rotação
+   */
+  async _handleOrganizePageRotated(position, direction) {
+    const rotationDelta  = direction === 'right' ? 90 : -90;
+    const currentState   = this._organizePageStates[position];
+    // Normaliza para [0, 360) independentemente de valores negativos
+    const newRotation    = ((currentState.rotation + rotationDelta) % 360 + 360) % 360;
+
+    this._organizePageStates[position] = { ...currentState, rotation: newRotation };
+
+    // Re-renderiza a miniatura da página afetada com a nova rotação.
+    // As demais miniaturas permanecem em cache — sem custo extra.
+    const updatedDataUrl = await this._renderPageThumbnail(
+      currentState.originalIndex,
+      newRotation
+    );
+    if (updatedDataUrl) {
+      this._organizeThumbnails.set(currentState.originalIndex, updatedDataUrl);
+    }
+
+    this._uiController.renderOrganizePageGrid(this._organizePageStates, this._organizeThumbnails);
+  }
+
+  /**
+   * Move a página de `fromPosition` para `toPosition`, deslocando as demais.
+   *
+   * @param {number} fromPosition
+   * @param {number} toPosition
+   */
+  _handleOrganizePageMoved(fromPosition, toPosition) {
+    const isOutOfBounds =
+      fromPosition < 0 || fromPosition >= this._organizePageStates.length ||
+      toPosition   < 0 || toPosition   >= this._organizePageStates.length;
+
+    if (fromPosition === toPosition || isOutOfBounds) return;
+
+    const updatedStates     = [...this._organizePageStates];
+    const [displacedPage]   = updatedStates.splice(fromPosition, 1);
+    updatedStates.splice(toPosition, 0, displacedPage);
+
+    this._organizePageStates = updatedStates;
+    this._uiController.renderOrganizePageGrid(this._organizePageStates, this._organizeThumbnails);
+  }
+
+  /**
+   * Remove do documento todas as páginas marcadas para exclusão.
+   * Impede que o usuário exclua a última página restante.
+   *
+   * @param {Set<number>} selectedPositions - Posições 0-based a remover
+   */
+  _handleOrganizeDeleteSelected(selectedPositions) {
+    if (selectedPositions.size === 0) return;
+
+    if (selectedPositions.size >= this._organizePageStates.length) {
+      this._uiController.showToast(
+        'Não é possível excluir todas as páginas do documento.',
+        'error'
+      );
+      return;
+    }
+
+    this._organizePageStates = this._organizePageStates.filter(
+      (_, index) => !selectedPositions.has(index)
+    );
+
+    const count     = selectedPositions.size;
+    const pageWord  = count === 1 ? 'página excluída' : 'páginas excluídas';
+    this._uiController.renderOrganizePageGrid(this._organizePageStates, this._organizeThumbnails);
+    this._uiController.showToast(`${count} ${pageWord}.`, 'success');
+  }
+
+  /**
+   * Restaura a ordem e rotação originais do documento.
+   */
+  _handleOrganizeResetRequested() {
+    if (this._organizePageCount === 0) return;
+
+    this._organizePageStates = this._buildInitialPageStates(this._organizePageCount);
+    // Restaura as miniaturas originais sem precisar re-renderizar nenhuma página.
+    // As base thumbnails (rotação=0) foram geradas uma única vez ao carregar o arquivo.
+    this._organizeThumbnails = new Map(this._organizeBaseThumbnails);
+    this._uiController.renderOrganizePageGrid(this._organizePageStates, this._organizeThumbnails);
+    this._uiController.showToast('Páginas redefinidas para a ordem original.', 'info');
+  }
+
+  /**
+   * Processa o PDF aplicando a ordem e rotações configuradas pelo usuário.
+   */
+  async _handleOrganizeRequested() {
+    if (!this._organizeSourceFile) {
+      this._uiController.showToast('Selecione um arquivo PDF primeiro.', 'error');
+      return;
+    }
+
+    this._uiController.setOrganizeProcessingState(true);
+    this._uiController.setOrganizeProgressState(true, 0, 'Reorganizando páginas…');
+
+    try {
+      const organizedPdfBytes = await this._pdfProcessor.organizePages(
+        this._organizeSourceFile,
+        this._organizePageStates,
+        (percentage) => {
+          this._uiController.setOrganizeProgressState(
+            true,
+            percentage,
+            `Processando… ${percentage}%`
+          );
+        }
+      );
+
+      this._uiController.setOrganizeProgressState(true, 100, 'Finalizando…');
+
+      const outputFileName = this._uiController.getOrganizeOutputFileName();
+      this._downloadPdfFile(organizedPdfBytes, outputFileName);
+
+      this._uiController.showToast('PDF salvo com sucesso!', 'success', 6000);
+    } catch (error) {
+      this._uiController.showToast(`Erro: ${error.message}`, 'error', 6000);
+    } finally {
+      this._uiController.setOrganizeProcessingState(false);
+      setTimeout(() => this._uiController.setOrganizeProgressState(false), 600);
+    }
+  }
+
+  /**
+   * Renderiza todas as miniaturas em segundo plano usando PDF.js.
+   *
+   * As páginas são processadas em sequência para evitar sobrecarga do worker.
+   * Cada miniatura é armazenada em `_organizeBaseThumbnails` (rotação=0) e em
+   * `_organizeThumbnails`, e o cartão correspondente é atualizado imediatamente
+   * na interface — sem re-renderizar o grid inteiro.
+   *
+   * Falhas silenciosas: se PDF.js não estiver disponível ou o arquivo for
+   * inválido, a funcionalidade de organização continua normando normalmente
+   * com os cartões no estilo de placeholder (linhas decorativas).
+   *
+   * @param {File} file
+   */
+  async _renderOrganizeThumbnailsInBackground(file) {
+    if (typeof pdfjsLib === 'undefined') return;
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      this._organizePdfJsDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+      const totalPages = this._organizePdfJsDoc.numPages;
+
+      for (let pageNumber = 1; pageNumber <= totalPages; pageNumber++) {
+        // Para imediatamente se o arquivo foi removido durante a renderização
+        if (!this._organizePdfJsDoc) return;
+
+        const originalIndex = pageNumber - 1;
+        const dataUrl       = await this._renderPageThumbnail(originalIndex, 0);
+
+        if (dataUrl) {
+          this._organizeBaseThumbnails.set(originalIndex, dataUrl);
+          this._organizeThumbnails.set(originalIndex, dataUrl);
+          // Atualiza apenas o <img> do cartão, sem reconstruir o grid inteiro
+          this._uiController.updateOrganizeThumbnail(originalIndex, dataUrl);
+        }
+      }
+    } catch {
+      // Miniaturas são um recurso de conforto visual; falha não deve interromper
+      // a funcionalidade principal de reorganização do documento.
+    }
+  }
+
+  /**
+   * Renderiza uma única página como miniatura JPEG usando PDF.js.
+   *
+   * A rotação final é a soma da rotação inerente da página no PDF com a
+   * rotação adicional aplicada pelo usuário, garantindo consistência com
+   * o resultado produzido pelo pdf-lib em `organizePages()`.
+   *
+   * @param {number} originalIndex - Índice 0-based da página no documento original
+   * @param {number} userRotation  - Rotação adicional do usuário (0, 90, 180, 270)
+   * @returns {Promise<string|null>} Data URL JPEG ou null se falhar
+   */
+  async _renderPageThumbnail(originalIndex, userRotation) {
+    if (!this._organizePdfJsDoc) return null;
+
+    const THUMBNAIL_SCALE = 0.25;
+
+    try {
+      const page             = await this._organizePdfJsDoc.getPage(originalIndex + 1);
+      const inherentRotation = page.rotate ?? 0;
+      const totalRotation    = (inherentRotation + userRotation) % 360;
+
+      const viewport = page.getViewport({ scale: THUMBNAIL_SCALE, rotation: totalRotation });
+      const canvas   = document.createElement('canvas');
+      canvas.width   = viewport.width;
+      canvas.height  = viewport.height;
+
+      const context = canvas.getContext('2d');
+      await page.render({ canvasContext: context, viewport }).promise;
+
+      return canvas.toDataURL('image/jpeg', 0.8);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Gera o estado inicial das páginas: ordem sequencial, sem rotação extra.
+   *
+   * @param {number} pageCount - Total de páginas do documento
+   * @returns {Array<{originalIndex: number, rotation: number}>}
+   */
+  _buildInitialPageStates(pageCount) {
+    return Array.from({ length: pageCount }, (_, index) => ({
+      originalIndex: index,
+      rotation: 0,
+    }));
   }
 
   // ─── Helpers compartilhados ────────────────────────────────────────────────

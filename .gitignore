@@ -1,0 +1,91 @@
+# ─── Sistema Operacional ──────────────────────────────────────────────────────
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# ─── Editores e IDEs ──────────────────────────────────────────────────────────
+
+# VS Code (configurações pessoais; .vscode/launch.json e extensions.json
+# podem ser versionados se a equipe padronizar — ajuste conforme necessário)
+.vscode/
+!.vscode/extensions.json
+
+# JetBrains (WebStorm, IntelliJ…)
+.idea/
+*.iml
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim / Neovim
+*.swp
+*.swo
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+Session.vim
+.netrwhist
+
+# Emacs
+\#*\#
+.#*
+
+# ─── Node.js (caso venha a ser adotado futuramente) ───────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.pnp/
+.pnp.js
+
+# ─── Build e geração de artefatos ─────────────────────────────────────────────
+dist/
+build/
+out/
+.cache/
+.parcel-cache/
+.vite/
+
+# ─── Testes e cobertura ───────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ─── Variáveis de ambiente e segredos ─────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+
+# ─── Logs e temporários ───────────────────────────────────────────────────────
+*.log
+logs/
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# ─── Claude Code ──────────────────────────────────────────────────────────────
+# Configurações pessoais (não compartilhar entre máquinas)
+.claude/settings.local.json
+# Memória gerada automaticamente pelo assistente (específica de cada dev)
+.claude/projects/

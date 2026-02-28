@@ -1,0 +1,69 @@
+# ─── Controle de versão ───────────────────────────────────────────────────────
+# Histórico do git não é código — irrelevante para análise de IA
+.git/
+
+# ─── Configurações locais do Claude ───────────────────────────────────────────
+# Memória e logs de sessão não ajudam na análise do projeto
+.claude/projects/
+.claude/settings.local.json
+
+# ─── Sistema Operacional ──────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Dependências externas ────────────────────────────────────────────────────
+# Código de terceiros: volumoso e não pertence ao projeto
+node_modules/
+
+# ─── Build e artefatos gerados ────────────────────────────────────────────────
+# Derivados do código-fonte — a IA deve analisar a fonte, não o resultado
+dist/
+build/
+out/
+coverage/
+.cache/
+.parcel-cache/
+.vite/
+.nyc_output/
+
+# ─── Logs e temporários ───────────────────────────────────────────────────────
+*.log
+logs/
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# ─── Segredos e variáveis de ambiente ─────────────────────────────────────────
+# Nunca expor credenciais ao contexto do assistente
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+
+# ─── Arquivos binários e mídia ────────────────────────────────────────────────
+# Binários não são legíveis — apenas aumentam o contexto sem agregar valor
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.svg
+*.ico
+*.woff
+*.woff2
+*.ttf
+*.eot
+*.otf
+*.mp4
+*.mp3
+*.zip
+*.tar.gz
+*.gz
+*.rar
+*.exe
+*.dll

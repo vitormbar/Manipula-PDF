@@ -21,6 +21,11 @@ class UIController {
     // Armazena o total de páginas do PDF aberto no painel de extração.
     // Usado internamente para validar os intervalos em tempo real.
     this._extractTotalPages = 0;
+    // Rastreia quais posições do grid estão marcadas para exclusão.
+    // É estado de UI puro: resetado a cada re-renderização do grid.
+    this._organizeSelectedPositions = new Set();
+    // Largura atual dos cartões de página em pixels; ajustada pelos botões de zoom.
+    this._organizeCardWidth = 90;
     this._elements = this._queryDomElements();
     this._attachEventListeners();
   }
@@ -197,6 +202,9 @@ class UIController {
 
     // Painel Extrair Páginas
     this._attachExtractPanelListeners();
+
+    // Painel Organizar Páginas
+    this._attachOrganizePanelListeners();
   }
 
   // ─── Painel Extrair Páginas: métodos públicos ─────────────────────────────
@@ -583,6 +591,452 @@ class UIController {
     this._elements.extractFilenamePreview.textContent = this.getExtractOutputFileName();
   }
 
+  // ─── Painel Organizar Páginas: métodos públicos ───────────────────────────
+
+  /**
+   * Exibe o card de arquivo carregado e revela a seção de configuração.
+   *
+   * @param {File}   file      - O arquivo PDF selecionado
+   * @param {number} pageCount - Total de páginas do documento
+   */
+  renderOrganizeFileInfo(file, pageCount) {
+    this._elements.organizeUploadZone.hidden  = true;
+    this._elements.organizeFileInfo.hidden    = false;
+    this._elements.organizeConfig.hidden      = false;
+    this._elements.organizePanelFooter.hidden = false;
+
+    this._elements.organizeFileName.textContent    = file.name;
+    this._elements.organizeFileDetails.textContent =
+      `${pageCount} página${pageCount !== 1 ? 's' : ''} · ${this._formatFileSize(file.size)}`;
+
+    this._elements.organizeCustomName.value = '';
+    this._updateOrganizeFilenamePreview();
+  }
+
+  /**
+   * Reconstrói o grid de cartões de página com base no estado atual.
+   * Reseta a seleção a cada re-renderização (após reordenar, girar ou excluir)
+   * pois os índices de posição mudam e a seleção anterior se tornaria inválida.
+   *
+   * @param {Array<{originalIndex: number, rotation: number}>} pageStates
+   * @param {Map<number, string>} thumbnails - Mapa de originalIndex → data URL da miniatura
+   */
+  renderOrganizePageGrid(pageStates, thumbnails = new Map()) {
+    this._organizeSelectedPositions.clear();
+    this._updateOrganizeDeleteButtonState();
+    this._applyOrganizeCardWidth();
+
+    const grid = this._elements.organizePageGrid;
+    grid.innerHTML = '';
+
+    for (const [position, state] of pageStates.entries()) {
+      const thumbnailDataUrl = thumbnails.get(state.originalIndex) ?? null;
+      const card = this._buildPageCard(state, position, pageStates.length, thumbnailDataUrl);
+      grid.appendChild(card);
+    }
+  }
+
+  /**
+   * Reseta o painel de organização para o estado inicial (zona de upload visível).
+   */
+  clearOrganizePanel() {
+    this._elements.organizeUploadZone.hidden  = false;
+    this._elements.organizeFileInfo.hidden    = true;
+    this._elements.organizeConfig.hidden      = true;
+    this._elements.organizePanelFooter.hidden = true;
+
+    this._elements.organizePageGrid.innerHTML = '';
+    this._elements.organizeCustomName.value   = '';
+  }
+
+  /**
+   * Habilita ou desabilita os controles do painel durante o processamento.
+   *
+   * @param {boolean} isProcessing
+   */
+  setOrganizeProcessingState(isProcessing) {
+    const elementsToToggle = [
+      this._elements.btnOrganize,
+      this._elements.organizeCustomName,
+      this._elements.organizeBtnRemoveFile,
+      this._elements.organizeBtnReset,
+      this._elements.organizeBtnDeleteSelected,
+      this._elements.organizeBtnZoomOut,
+      this._elements.organizeBtnZoomIn,
+    ];
+
+    for (const element of elementsToToggle) {
+      element.disabled = isProcessing;
+    }
+
+    // Desabilita todos os botões dentro dos cartões durante o processamento
+    for (const btn of this._elements.organizePageGrid.querySelectorAll('.page-card-btn')) {
+      btn.disabled = isProcessing;
+    }
+
+    this._elements.btnOrganize.innerHTML = isProcessing
+      ? '⏳ Processando…'
+      : '<span aria-hidden="true">💾</span> Salvar PDF';
+  }
+
+  /**
+   * Exibe ou oculta a barra de progresso do painel de organização.
+   *
+   * @param {boolean} isVisible
+   * @param {number}  percentage - 0 a 100
+   * @param {string}  label      - Texto descritivo
+   */
+  setOrganizeProgressState(isVisible, percentage = 0, label = '') {
+    this._elements.organizeProgressContainer.hidden = !isVisible;
+    this._elements.organizeProgressBarFill.style.width = `${percentage}%`;
+    this._elements.organizeProgressLabel.textContent = label;
+  }
+
+  /**
+   * Retorna o nome de arquivo para o PDF organizado.
+   * Usa o campo personalizado se preenchido; caso contrário, gera nome com data.
+   *
+   * @returns {string}
+   */
+  getOrganizeOutputFileName() {
+    const rawCustomName = this._elements.organizeCustomName.value.trim();
+    const sanitized     = this._sanitizeForFilename(rawCustomName);
+
+    if (sanitized) {
+      return `${sanitized}.pdf`;
+    }
+
+    const today = new Date();
+    return `documento-organizado-${today.toISOString().slice(0, 10)}.pdf`;
+  }
+
+  /**
+   * Atualiza a miniatura de uma página específica sem re-renderizar o grid inteiro.
+   * Chamado progressivamente enquanto as miniaturas são geradas em segundo plano.
+   *
+   * @param {number} originalIndex - Índice 0-based da página no documento original
+   * @param {string} dataUrl       - Data URL da imagem (JPEG) gerada pelo PDF.js
+   */
+  updateOrganizeThumbnail(originalIndex, dataUrl) {
+    const imgEl = document.getElementById(`organize-thumb-${originalIndex}`);
+    if (!imgEl) return;
+
+    imgEl.src           = dataUrl;
+    imgEl.style.display = '';
+  }
+
+  // ─── Painel Organizar Páginas: métodos privados ───────────────────────────
+
+  /**
+   * Vincula todos os event listeners do painel de organização.
+   * Os handlers de drag-and-drop do grid são registrados uma única vez aqui,
+   * usando delegação de eventos para evitar acúmulo de listeners a cada
+   * re-renderização do grid.
+   */
+  _attachOrganizePanelListeners() {
+    // Seleção via botão
+    this._elements.organizeBtnSelectFile.addEventListener('click', () => {
+      this._elements.organizeFileInput.click();
+    });
+
+    this._elements.organizeFileInput.addEventListener('change', (event) => {
+      const selectedFiles = Array.from(event.target.files);
+      if (selectedFiles.length > 0) {
+        this._handlers.onOrganizeFileSelected(selectedFiles[0]);
+      }
+      event.target.value = ''; // Permite reselecionar o mesmo arquivo
+    });
+
+    // Clique na zona de upload
+    this._elements.organizeUploadZone.addEventListener('click', (event) => {
+      const clickedOnSelectButton = event.target.closest('#organize-btn-select-file');
+      if (!clickedOnSelectButton) {
+        this._elements.organizeFileInput.click();
+      }
+    });
+
+    // Acessibilidade: Enter/Espaço na zona de upload
+    this._elements.organizeUploadZone.addEventListener('keydown', (event) => {
+      const isActivationKey = event.key === 'Enter' || event.key === ' ';
+      if (isActivationKey) {
+        event.preventDefault();
+        this._elements.organizeFileInput.click();
+      }
+    });
+
+    // Drag & drop na zona de upload
+    this._elements.organizeUploadZone.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      this._elements.organizeUploadZone.classList.add('drag-over');
+    });
+
+    this._elements.organizeUploadZone.addEventListener('dragleave', (event) => {
+      const isLeavingZone = !this._elements.organizeUploadZone.contains(event.relatedTarget);
+      if (isLeavingZone) {
+        this._elements.organizeUploadZone.classList.remove('drag-over');
+      }
+    });
+
+    this._elements.organizeUploadZone.addEventListener('drop', (event) => {
+      event.preventDefault();
+      this._elements.organizeUploadZone.classList.remove('drag-over');
+
+      const pdfFiles = Array.from(event.dataTransfer.files)
+        .filter(file => file.type === 'application/pdf');
+
+      if (pdfFiles.length > 0) {
+        this._handlers.onOrganizeFileSelected(pdfFiles[0]);
+      } else {
+        this.showToast('Apenas arquivos PDF são aceitos.', 'error');
+      }
+    });
+
+    // Remoção do arquivo
+    this._elements.organizeBtnRemoveFile.addEventListener('click', () => {
+      this._handlers.onOrganizeFileRemoved();
+    });
+
+    // Redefinir
+    this._elements.organizeBtnReset.addEventListener('click', () => {
+      this._handlers.onOrganizeResetRequested();
+    });
+
+    // Zoom das miniaturas: −30 px / +30 px, limitado ao intervalo [60, 200]
+    this._elements.organizeBtnZoomOut.addEventListener('click', () => {
+      const ZOOM_STEP     = 30;
+      const MIN_CARD_WIDTH = 60;
+      this._organizeCardWidth = Math.max(MIN_CARD_WIDTH, this._organizeCardWidth - ZOOM_STEP);
+      this._applyOrganizeCardWidth();
+    });
+
+    this._elements.organizeBtnZoomIn.addEventListener('click', () => {
+      const ZOOM_STEP     = 30;
+      const MAX_CARD_WIDTH = 200;
+      this._organizeCardWidth = Math.min(MAX_CARD_WIDTH, this._organizeCardWidth + ZOOM_STEP);
+      this._applyOrganizeCardWidth();
+    });
+
+    // Excluir páginas selecionadas
+    this._elements.organizeBtnDeleteSelected.addEventListener('click', () => {
+      // Passa uma cópia do Set para o App, evitando que o reset em
+      // renderOrganizePageGrid modifique o Set antes do processamento.
+      this._handlers.onOrganizeDeleteSelectedRequested(
+        new Set(this._organizeSelectedPositions)
+      );
+    });
+
+    // Preview do nome em tempo real
+    this._elements.organizeCustomName.addEventListener('input', () => {
+      this._updateOrganizeFilenamePreview();
+    });
+
+    // Salvar PDF
+    this._elements.btnOrganize.addEventListener('click', () => {
+      this._handlers.onOrganizeRequested();
+    });
+
+    // Drag-and-drop dos cartões de página (delegação no grid persistente)
+    this._attachPageCardDragHandlers(this._elements.organizePageGrid);
+  }
+
+  /**
+   * Registra os handlers de drag-and-drop no grid de cartões.
+   * Usa delegação de eventos para que funcione mesmo após re-renderizações.
+   *
+   * @param {HTMLElement} grid
+   */
+  _attachPageCardDragHandlers(grid) {
+    let draggingFromPosition = null;
+
+    grid.addEventListener('dragstart', (event) => {
+      const card = event.target.closest('.page-card');
+      if (!card) return;
+
+      draggingFromPosition = parseInt(card.dataset.position, 10);
+      event.dataTransfer.effectAllowed = 'move';
+
+      // requestAnimationFrame garante que a classe seja adicionada após o
+      // navegador capturar o snapshot visual para o ghost de arraste.
+      requestAnimationFrame(() => card.classList.add('is-dragging'));
+    });
+
+    grid.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+
+      const targetCard = event.target.closest('.page-card');
+      grid.querySelectorAll('.page-card').forEach(c => c.classList.remove('drag-target'));
+      if (targetCard) {
+        targetCard.classList.add('drag-target');
+      }
+    });
+
+    grid.addEventListener('dragleave', (event) => {
+      // Remove o destaque apenas quando o cursor sai do grid inteiro
+      if (!grid.contains(event.relatedTarget)) {
+        grid.querySelectorAll('.page-card').forEach(c => c.classList.remove('drag-target'));
+      }
+    });
+
+    grid.addEventListener('drop', (event) => {
+      event.preventDefault();
+
+      const targetCard = event.target.closest('.page-card');
+      if (!targetCard || draggingFromPosition === null) return;
+
+      const toPosition = parseInt(targetCard.dataset.position, 10);
+      if (draggingFromPosition !== toPosition) {
+        this._handlers.onOrganizePageMoved(draggingFromPosition, toPosition);
+      }
+
+      grid.querySelectorAll('.page-card').forEach(c => {
+        c.classList.remove('drag-target', 'is-dragging');
+      });
+      draggingFromPosition = null;
+    });
+
+    grid.addEventListener('dragend', () => {
+      grid.querySelectorAll('.page-card').forEach(c => {
+        c.classList.remove('drag-target', 'is-dragging');
+      });
+      draggingFromPosition = null;
+    });
+  }
+
+  /**
+   * Constrói um cartão de página para o grid de organização.
+   *
+   * @param {{originalIndex: number, rotation: number}} pageState
+   * @param {number}      position         - Posição atual no grid (0-based)
+   * @param {number}      totalPages       - Total de páginas no documento
+   * @param {string|null} thumbnailDataUrl - Data URL da miniatura, ou null enquanto carrega
+   * @returns {HTMLDivElement}
+   */
+  _buildPageCard(pageState, position, totalPages, thumbnailDataUrl = null) {
+    const isFirstPage = position === 0;
+    const isLastPage  = position === totalPages - 1;
+    const hasRotation = pageState.rotation !== 0;
+
+    const card = document.createElement('div');
+    card.className    = 'page-card';
+    card.draggable    = true;
+    card.dataset.position = position;
+    card.setAttribute('role', 'listitem');
+    card.setAttribute(
+      'aria-label',
+      `Posição ${position + 1}, página original ${pageState.originalIndex + 1}` +
+      (hasRotation ? `, girada ${pageState.rotation}°` : '')
+    );
+
+    card.innerHTML = `
+      <input type="checkbox" class="page-card-checkbox"
+             aria-label="Selecionar página ${position + 1} para excluir" />
+      <div class="page-card-thumb">
+        <img id="organize-thumb-${pageState.originalIndex}"
+             class="page-card-thumb-img"
+             alt="Miniatura da página ${pageState.originalIndex + 1}"
+             style="display:none" />
+        <span class="page-card-num">${pageState.originalIndex + 1}</span>
+        <span class="page-card-rot-badge${hasRotation ? ' is-visible' : ''}"
+              aria-hidden="true">${hasRotation ? pageState.rotation + '°' : ''}</span>
+      </div>
+      <div class="page-card-btns">
+        <button class="page-card-btn" data-action="rotate-left"
+                title="Girar 90° à esquerda" aria-label="Girar à esquerda">↺</button>
+        <button class="page-card-btn" data-action="rotate-right"
+                title="Girar 90° à direita" aria-label="Girar à direita">↻</button>
+        <button class="page-card-btn" data-action="move-prev"
+                title="Mover para posição anterior" aria-label="Mover para trás"
+                ${isFirstPage ? 'disabled' : ''}>←</button>
+        <button class="page-card-btn" data-action="move-next"
+                title="Mover para próxima posição" aria-label="Mover para frente"
+                ${isLastPage ? 'disabled' : ''}>→</button>
+      </div>
+    `;
+
+    // Define o src via JS para evitar data URLs longas no innerHTML.
+    // Exibir a imagem apenas após src definido evita o ícone de imagem quebrada.
+    if (thumbnailDataUrl) {
+      const imgEl = card.querySelector('.page-card-thumb-img');
+      imgEl.src           = thumbnailDataUrl;
+      imgEl.style.display = '';
+    }
+
+    // Checkbox: atualiza o Set de seleção e o visual do cartão
+    const checkbox = card.querySelector('.page-card-checkbox');
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) {
+        this._organizeSelectedPositions.add(position);
+        card.classList.add('is-selected');
+      } else {
+        this._organizeSelectedPositions.delete(position);
+        card.classList.remove('is-selected');
+      }
+      this._updateOrganizeDeleteButtonState();
+    });
+
+    // Vincula as ações diretamente aos botões do cartão.
+    // Os listeners são recriados a cada renderização, não há acúmulo pois
+    // o cartão é um elemento novo criado do zero.
+    card.querySelectorAll('.page-card-btn').forEach(button => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation(); // Impede conflito com o handler de drag do grid
+        const action          = button.dataset.action;
+        const currentPosition = parseInt(card.dataset.position, 10);
+
+        if (action === 'rotate-left') {
+          this._handlers.onOrganizePageRotated(currentPosition, 'left');
+        } else if (action === 'rotate-right') {
+          this._handlers.onOrganizePageRotated(currentPosition, 'right');
+        } else if (action === 'move-prev') {
+          this._handlers.onOrganizePageMoved(currentPosition, currentPosition - 1);
+        } else if (action === 'move-next') {
+          this._handlers.onOrganizePageMoved(currentPosition, currentPosition + 1);
+        }
+      });
+    });
+
+    return card;
+  }
+
+  /**
+   * Aplica a largura atual dos cartões como variável CSS no grid e
+   * desabilita os botões de zoom nos seus respectivos limites.
+   *
+   * O grid usa `--card-width` para que todos os cartões reflitam o valor
+   * sem que seja necessário alterar cada elemento individualmente.
+   */
+  _applyOrganizeCardWidth() {
+    const MIN_CARD_WIDTH = 60;
+    const MAX_CARD_WIDTH = 200;
+
+    this._elements.organizePageGrid.style.setProperty(
+      '--card-width', `${this._organizeCardWidth}px`
+    );
+
+    this._elements.organizeBtnZoomOut.disabled = this._organizeCardWidth <= MIN_CARD_WIDTH;
+    this._elements.organizeBtnZoomIn.disabled  = this._organizeCardWidth >= MAX_CARD_WIDTH;
+  }
+
+  /**
+   * Atualiza o preview do nome de arquivo no painel de organização.
+   */
+  _updateOrganizeFilenamePreview() {
+    this._elements.organizeFilenamePreview.textContent = this.getOrganizeOutputFileName();
+  }
+
+  /**
+   * Mostra ou oculta o botão "Excluir" e atualiza a contagem de páginas
+   * selecionadas exibida nele.
+   */
+  _updateOrganizeDeleteButtonState() {
+    const count    = this._organizeSelectedPositions.size;
+    const hasAny   = count > 0;
+
+    this._elements.organizeBtnDeleteSelected.hidden = !hasAny;
+    this._elements.organizeSelectedCount.textContent = count;
+  }
+
   // ─── Construção de elementos ───────────────────────────────────────────────
 
   /**
@@ -671,6 +1125,28 @@ class UIController {
       extractProgressLabel:     document.getElementById('extract-progress-label'),
       extractPanelFooter:       document.getElementById('extract-panel-footer'),
       btnExtract:               document.getElementById('btn-extract'),
+      // Painel Organizar Páginas
+      organizeUploadZone:        document.getElementById('organize-upload-zone'),
+      organizeFileInput:         document.getElementById('organize-file-input'),
+      organizeBtnSelectFile:     document.getElementById('organize-btn-select-file'),
+      organizeFileInfo:          document.getElementById('organize-file-info'),
+      organizeFileName:          document.getElementById('organize-file-name'),
+      organizeFileDetails:       document.getElementById('organize-file-details'),
+      organizeBtnRemoveFile:     document.getElementById('organize-btn-remove-file'),
+      organizeConfig:            document.getElementById('organize-config'),
+      organizeBtnReset:              document.getElementById('organize-btn-reset'),
+      organizeBtnDeleteSelected:     document.getElementById('organize-btn-delete-selected'),
+      organizeSelectedCount:         document.getElementById('organize-selected-count'),
+      organizeBtnZoomOut:            document.getElementById('organize-btn-zoom-out'),
+      organizeBtnZoomIn:             document.getElementById('organize-btn-zoom-in'),
+      organizePageGrid:          document.getElementById('organize-page-grid'),
+      organizeCustomName:        document.getElementById('organize-custom-name'),
+      organizeFilenamePreview:   document.getElementById('organize-filename-preview'),
+      organizeProgressContainer: document.getElementById('organize-progress-container'),
+      organizeProgressBarFill:   document.getElementById('organize-progress-bar-fill'),
+      organizeProgressLabel:     document.getElementById('organize-progress-label'),
+      organizePanelFooter:       document.getElementById('organize-panel-footer'),
+      btnOrganize:               document.getElementById('btn-organize'),
       // Notificações
       toastContainer:    document.getElementById('toast-container'),
     };

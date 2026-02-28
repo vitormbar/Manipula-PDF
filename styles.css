@@ -648,6 +648,231 @@ button {
 .range-feedback.is-info    { color: var(--color-text-secondary); }
 
 /* ============================================================
+   Painel Organizar Páginas — toolbar e grid
+   ============================================================ */
+
+.organize-config {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Barra de instrução + botões de ação */
+.organize-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.organize-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.organize-hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* Grid de cartões de página — flex com quebra de linha natural */
+.page-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ── Cartão de página ──────────────────────────────────────── */
+.page-card {
+  position: relative; /* necessário para o checkbox absoluto e o badge de rotação */
+  width: var(--card-width, 90px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  background-color: var(--color-bg-card);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  cursor: grab;
+  user-select: none;
+  transition: box-shadow var(--transition-fast),
+              border-color var(--transition-fast),
+              opacity var(--transition-fast),
+              background-color var(--transition-fast);
+}
+
+.page-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-primary);
+}
+
+/* Reduz opacidade enquanto está sendo arrastado */
+.page-card.is-dragging {
+  opacity: 0.35;
+  cursor: grabbing;
+}
+
+/* Destaque visual na posição de destino do drag */
+.page-card.drag-target {
+  border-color: var(--color-primary);
+  border-style: dashed;
+  background-color: var(--color-primary-light);
+  box-shadow: 0 0 0 3px rgba(79, 110, 247, 0.15);
+}
+
+/* Cartão com páginas selecionadas para exclusão */
+.page-card.is-selected {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-light);
+  box-shadow: 0 0 0 2px rgba(79, 110, 247, 0.25);
+}
+
+/* Checkbox de seleção — sobreposto ao canto superior esquerdo do cartão */
+.page-card-checkbox {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+  z-index: 3;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+/* Aparece no hover ou quando marcado */
+.page-card:hover .page-card-checkbox,
+.page-card-checkbox:checked {
+  opacity: 1;
+}
+
+/* Miniatura da página — retângulo no formato de documento */
+.page-card-thumb {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  background-color: var(--color-bg-app);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* Linhas horizontais decorativas (placeholder enquanto a miniatura não carrega) */
+.page-card-thumb::after {
+  content: '';
+  position: absolute;
+  inset: 10px 8px;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent,
+    transparent 5px,
+    var(--color-border) 5px,
+    var(--color-border) 6px
+  );
+  opacity: 0.6;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Imagem real da miniatura — cobre o placeholder quando carregada */
+.page-card-thumb-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background-color: var(--color-bg-main);
+  z-index: 1;
+}
+
+/* Número da página — badge sobreposto no canto inferior esquerdo */
+.page-card-num {
+  position: absolute;
+  bottom: 3px;
+  left: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #ffffff;
+  background-color: rgba(0, 0, 0, 0.45);
+  padding: 1px 4px;
+  border-radius: 3px;
+  z-index: 2;
+  line-height: 1.4;
+}
+
+/* Badge de rotação — visível apenas quando a página está rotacionada */
+.page-card-rot-badge {
+  display: none;
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  background-color: var(--color-primary);
+  color: #ffffff;
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: var(--radius-full);
+  z-index: 2;
+  line-height: 1.4;
+}
+
+.page-card-rot-badge.is-visible {
+  display: block;
+}
+
+/* Botões de ação dentro de cada cartão */
+.page-card-btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 2px;
+  width: 100%;
+}
+
+.page-card-btn {
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1;
+  transition: color var(--transition-fast),
+              background-color var(--transition-fast);
+}
+
+.page-card-btn:not(:disabled):hover {
+  color: var(--color-primary);
+  background-color: var(--color-primary-light);
+}
+
+.page-card-btn:disabled {
+  opacity: 0.2;
+  cursor: default;
+}
+
+/* Controles de zoom das miniaturas */
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.zoom-btn {
+  width: 26px;
+  padding: 0;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* ============================================================
    Responsividade básica
    ============================================================ */
 @media (max-width: 680px) {

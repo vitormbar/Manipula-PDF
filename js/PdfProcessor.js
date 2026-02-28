@@ -106,6 +106,52 @@ class PdfProcessor {
   }
 
   /**
+   * Reorganiza um documento PDF aplicando nova ordem de páginas e rotações.
+   *
+   * Cada instrução define qual página original usar (por índice 0-based) e
+   * quantos graus adicionais de rotação aplicar sobre a rotação já existente
+   * na página. A ordem do array define a sequência final do documento.
+   *
+   * @param {File} sourceFile - O arquivo PDF de origem
+   * @param {Array<{originalIndex: number, rotation: number}>} pageInstructions
+   *   - `originalIndex`: índice 0-based da página no documento original
+   *   - `rotation`: graus adicionais a aplicar (0, 90, 180 ou 270)
+   * @param {function(number): void} onProgressUpdate - Callback de progresso (0–100)
+   * @returns {Promise<Uint8Array>} Bytes do novo PDF reorganizado
+   * @throws {Error} Se nenhuma instrução for fornecida ou o arquivo for inválido
+   */
+  async organizePages(sourceFile, pageInstructions, onProgressUpdate) {
+    if (!pageInstructions || pageInstructions.length === 0) {
+      throw new Error('Nenhuma instrução de página foi fornecida para organizar.');
+    }
+
+    const fileBytes      = await this._readFileAsArrayBuffer(sourceFile);
+    const sourceDocument = await this._loadPdfDocument(fileBytes, sourceFile.name);
+    const newDocument    = await PDFLib.PDFDocument.create();
+    const totalPages     = pageInstructions.length;
+
+    const originalIndices = pageInstructions.map(instruction => instruction.originalIndex);
+    const copiedPages     = await newDocument.copyPages(sourceDocument, originalIndices);
+
+    for (let i = 0; i < copiedPages.length; i++) {
+      const page = copiedPages[i];
+
+      // Preserva a rotação original da página e acrescenta a do usuário.
+      // O módulo positivo ((x % 360) + 360) % 360 garante valor em [0, 360).
+      const existingAngle = page.getRotation().angle ?? 0;
+      const finalAngle    = ((existingAngle + pageInstructions[i].rotation) % 360 + 360) % 360;
+      page.setRotation(PDFLib.degrees(finalAngle));
+
+      newDocument.addPage(page);
+
+      const progressPercentage = Math.round(((i + 1) / totalPages) * 100);
+      onProgressUpdate(progressPercentage);
+    }
+
+    return newDocument.save();
+  }
+
+  /**
    * Lê um arquivo, o converte em documento pdf-lib e copia todas as suas
    * páginas para o documento de destino.
    *
