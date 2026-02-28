@@ -29,10 +29,7 @@
               <span class="nav-icon">🔀</span>
               <span class="nav-label">Organizar Páginas</span>
             </li>
-            <li class="nav-item" data-tool="compress">
-              <span class="nav-icon">📦</span>
-              <span class="nav-label">Comprimir PDF</span>
-            </li>
+            <!-- Futuras ferramentas serão adicionadas aqui -->
           </ul>
         </nav>
       </aside>
@@ -114,16 +111,6 @@
               <span class="preview-icon" aria-hidden="true">💾</span>
               <span class="preview-text">Salvar como: </span>
               <strong class="preview-value" id="filename-preview">documentos-unidos.pdf</strong>
-            </div>
-
-            <div class="field-group merge-compress-group">
-              <label class="checkbox-label" for="merge-compress-enabled">
-                <input type="checkbox" id="merge-compress-enabled" />
-                <span class="checkbox-text">
-                  Compressão estrutural ao salvar
-                  <span class="field-hint">— otimiza o tamanho sem alterar o conteúdo</span>
-                </span>
-              </label>
             </div>
           </div>
 
@@ -337,124 +324,6 @@
           <div class="panel-footer" id="organize-panel-footer" hidden>
             <button class="btn btn-primary btn-large" id="btn-organize" type="button">
               <span aria-hidden="true">💾</span> Salvar PDF
-            </button>
-          </div>
-        </section>
-
-        <!-- Painel: Comprimir PDF -->
-        <section class="tool-panel" id="panel-compress">
-          <header class="panel-header">
-            <h1 class="panel-title">Comprimir PDF</h1>
-            <p class="panel-description">
-              Reduza o tamanho de um arquivo PDF. O modo <strong>Leve</strong> otimiza
-              a estrutura interna preservando texto pesquisável. O modo
-              <strong>Agressivo</strong> rasteriza as páginas em JPEG para máxima
-              redução — ideal quando o texto não precisa ser selecionável.
-            </p>
-          </header>
-
-          <!-- Zona de upload -->
-          <div class="upload-zone" id="compress-upload-zone" role="button" tabindex="0"
-               aria-label="Arraste um PDF aqui ou clique para selecionar">
-            <div class="upload-zone-content">
-              <span class="upload-icon" aria-hidden="true">📂</span>
-              <p class="upload-primary-text">Arraste o arquivo PDF aqui</p>
-              <p class="upload-secondary-text">ou</p>
-              <button class="btn btn-secondary" id="compress-btn-select-file" type="button">
-                Selecionar Arquivo
-              </button>
-              <input type="file" id="compress-file-input" accept=".pdf" hidden />
-            </div>
-          </div>
-
-          <!-- Card do arquivo selecionado -->
-          <div class="extract-file-card" id="compress-file-info" hidden>
-            <span class="file-icon" aria-hidden="true">📄</span>
-            <div class="file-info">
-              <div class="file-name" id="compress-file-name">–</div>
-              <div class="file-size" id="compress-file-details">–</div>
-            </div>
-            <button class="btn btn-ghost btn-small btn-danger"
-                    id="compress-btn-remove-file" type="button"
-                    title="Remover arquivo e selecionar outro">
-              <span aria-hidden="true">🗑️</span> Remover
-            </button>
-          </div>
-
-          <!-- Configurações de compressão -->
-          <div class="compress-config" id="compress-config" hidden>
-
-            <!-- Seleção do modo -->
-            <div class="field-group">
-              <span class="field-label">Modo de compressão</span>
-              <div class="compress-mode-options">
-                <label class="compress-mode-option">
-                  <input type="radio" name="compress-mode"
-                         id="compress-mode-structural" value="structural" checked />
-                  <div class="compress-mode-body">
-                    <span class="compress-mode-label">Leve</span>
-                    <span class="compress-mode-desc">
-                      Comprime streams de objetos com deflate e remove metadados
-                      redundantes. Texto permanece pesquisável.
-                    </span>
-                  </div>
-                </label>
-                <label class="compress-mode-option">
-                  <input type="radio" name="compress-mode"
-                         id="compress-mode-aggressive" value="aggressive" />
-                  <div class="compress-mode-body">
-                    <span class="compress-mode-label">Agressivo</span>
-                    <span class="compress-mode-desc">
-                      Rasteriza cada página como imagem JPEG. Ideal para PDFs
-                      com imagens em alta resolução (ex: scans). Texto não será pesquisável.
-                    </span>
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            <!-- Qualidade (visível apenas no modo agressivo) -->
-            <div class="compress-quality-group" id="compress-quality-group" hidden>
-              <label class="field-label" for="compress-quality">Nível de compressão</label>
-              <select class="field-input" id="compress-quality">
-                <option value="0.85">Leve — melhor qualidade visual</option>
-                <option value="0.75" selected>Média — equilibrada</option>
-                <option value="0.60">Máxima — menor tamanho possível</option>
-              </select>
-            </div>
-
-            <!-- Nome do arquivo de saída -->
-            <div class="output-settings">
-              <h2 class="output-settings-title">Nome do arquivo</h2>
-              <div class="field-group">
-                <label class="field-label" for="compress-custom-name">
-                  Nome personalizado
-                  <span class="field-hint">— deixe em branco para usar o nome padrão</span>
-                </label>
-                <input class="field-input" type="text" id="compress-custom-name"
-                       placeholder="Ex.: documento-comprimido" autocomplete="off" />
-              </div>
-              <div class="filename-preview">
-                <span class="preview-icon" aria-hidden="true">💾</span>
-                <span class="preview-text">Salvar como: </span>
-                <strong class="preview-value" id="compress-filename-preview">documento-comprimido.pdf</strong>
-              </div>
-            </div>
-
-          </div>
-
-          <!-- Barra de progresso -->
-          <div class="progress-container" id="compress-progress-container" hidden>
-            <div class="progress-label" id="compress-progress-label">Processando…</div>
-            <div class="progress-bar-track">
-              <div class="progress-bar-fill" id="compress-progress-bar-fill"></div>
-            </div>
-          </div>
-
-          <!-- Botão de ação principal -->
-          <div class="panel-footer" id="compress-panel-footer" hidden>
-            <button class="btn btn-primary btn-large" id="btn-compress" type="button">
-              <span aria-hidden="true">📦</span> Comprimir PDF
             </button>
           </div>
         </section>
