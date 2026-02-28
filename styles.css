@@ -973,3 +973,33 @@ button {
 .split-unit-select {
   width: 80px;
 }
+
+/* Row da pasta de destino: botão + nome selecionado */
+.split-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.split-folder-name {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.split-folder-name.is-selected {
+  color: var(--success, #16a34a);
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Nota exibida no Firefox/Safari quando a File System Access API não está disponível */
+.split-folder-fallback-note {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}

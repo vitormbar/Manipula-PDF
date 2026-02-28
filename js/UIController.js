@@ -26,6 +26,9 @@ class UIController {
     this._organizeSelectedPositions = new Set();
     // Largura atual dos cartões de página em pixels; ajustada pelos botões de zoom.
     this._organizeCardWidth = 90;
+    // Handle da pasta de destino para salvar os chunks da divisão.
+    // Permanece null até o usuário clicar em "Escolher pasta" e confirmar no picker.
+    this._splitDirectoryHandle = null;
     this._elements = this._queryDomElements();
     this._attachEventListeners();
   }
@@ -1117,6 +1120,9 @@ class UIController {
     this._elements.splitPagesGroup.hidden      = false;
     this._elements.splitSizeGroup.hidden       = true;
     this._elements.splitFilenamePreview.textContent = '';
+
+    // Mantém a pasta selecionada entre arquivos — o usuário provavelmente
+    // quer salvar múltiplas divisões na mesma pasta sem re-selecionar.
   }
 
   /**
@@ -1134,6 +1140,7 @@ class UIController {
       this._elements.splitBtnRemoveFile,
       this._elements.splitModePagesRadio,
       this._elements.splitModeSizeRadio,
+      this._elements.splitBtnPickFolder,
     ];
 
     for (const element of elementsToToggle) {
@@ -1196,6 +1203,28 @@ class UIController {
    */
   getSplitOutputPrefix() {
     return this._elements.splitCustomName.value.trim();
+  }
+
+  /**
+   * Retorna o FileSystemDirectoryHandle selecionado pelo usuário, ou null
+   * se o usuário ainda não escolheu uma pasta de destino.
+   *
+   * @returns {FileSystemDirectoryHandle|null}
+   */
+  getSplitDirectoryHandle() {
+    return this._splitDirectoryHandle;
+  }
+
+  /**
+   * Indica se o navegador atual suporta a File System Access API.
+   *
+   * - Chrome / Edge → true  : pasta de destino disponível, arquivos gravados diretamente.
+   * - Firefox / Safari → false : fallback para download de um único arquivo .zip.
+   *
+   * @returns {boolean}
+   */
+  isSplitFileSystemAPIAvailable() {
+    return 'showDirectoryPicker' in window;
   }
 
   // ─── Painel: Dividir PDF — métodos privados ────────────────────────────────
@@ -1266,10 +1295,50 @@ class UIController {
       this._updateSplitFilenamePreview();
     });
 
+    // ── Pasta de destino (File System Access API) ───────────────────────────
+    this._elements.splitBtnPickFolder.addEventListener('click', async () => {
+      // A API showDirectoryPicker está disponível apenas no Chrome e Edge.
+      // Firefox e Safari não suportam escrita direta em pasta do sistema.
+      if (!('showDirectoryPicker' in window)) {
+        this._elements.splitFolderName.textContent =
+          'Navegador não suportado. Use Chrome ou Edge.';
+        this._elements.splitFolderName.classList.remove('is-selected');
+        return;
+      }
+
+      try {
+        const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        this._splitDirectoryHandle = handle;
+        this._elements.splitFolderName.textContent = handle.name;
+        this._elements.splitFolderName.classList.add('is-selected');
+      } catch (error) {
+        // AbortError = usuário cancelou o picker — não é um erro real.
+        if (error.name !== 'AbortError') {
+          this._elements.splitFolderName.textContent = 'Erro ao acessar a pasta.';
+          this._elements.splitFolderName.classList.remove('is-selected');
+        }
+      }
+    });
+
     // ── Botão de ação ───────────────────────────────────────────────────────
     this._elements.btnSplit.addEventListener('click', () => {
       this._handlers.onSplitRequested();
     });
+
+    // Adapta a seção "Pasta de destino" ao navegador atual na inicialização.
+    this._initializeSplitFolderUI();
+  }
+
+  /**
+   * Exibe o seletor de pasta (Chrome/Edge) ou a nota de fallback (Firefox/Safari)
+   * dependendo do suporte à File System Access API pelo navegador atual.
+   *
+   * Chamado uma única vez na inicialização do painel.
+   */
+  _initializeSplitFolderUI() {
+    const apiIsAvailable = this.isSplitFileSystemAPIAvailable();
+    this._elements.splitFolderRow.hidden      = !apiIsAvailable;
+    this._elements.splitFolderFallback.hidden =  apiIsAvailable;
   }
 
   /**
@@ -1396,6 +1465,10 @@ class UIController {
       splitProgressContainer: document.getElementById('split-progress-container'),
       splitProgressBarFill:   document.getElementById('split-progress-bar-fill'),
       splitProgressLabel:     document.getElementById('split-progress-label'),
+      splitBtnPickFolder:     document.getElementById('split-btn-pick-folder'),
+      splitFolderName:        document.getElementById('split-folder-name'),
+      splitFolderRow:         document.getElementById('split-folder-row'),
+      splitFolderFallback:    document.getElementById('split-folder-fallback'),
       splitPanelFooter:       document.getElementById('split-panel-footer'),
       btnSplit:               document.getElementById('btn-split'),
       // Notificações

@@ -506,15 +506,30 @@ class App {
   }
 
   /**
-   * Executa a divisão do PDF no modo selecionado e dispara o download de cada parte.
+   * Executa a divisão do PDF no modo selecionado e grava cada parte diretamente
+   * na pasta escolhida pelo usuário via File System Access API.
    *
-   * As partes são baixadas em sequência, com um intervalo de 150 ms entre cada
-   * download para evitar que o navegador bloqueie múltiplos downloads simultâneos.
-   * O nome de cada parte segue o padrão: `{prefixo}_pag{inicio}-{fim}.pdf`.
+   * Não abre abas nem janelas de download — os arquivos são escritos silenciosamente
+   * no diretório previamente selecionado. O nome de cada parte segue o padrão:
+   * `{prefixo}_pag{inicio}-{fim}.pdf`.
    */
   async _handleSplitRequested() {
     if (!this._splitSourceFile) {
       this._uiController.showToast('Selecione um arquivo PDF primeiro.', 'error');
+      return;
+    }
+
+    const isFileSystemAPIAvailable = this._uiController.isSplitFileSystemAPIAvailable();
+    const directoryHandle          = this._uiController.getSplitDirectoryHandle();
+
+    // Quando a File System Access API está disponível (Chrome/Edge), a pasta
+    // de destino é obrigatória pois os arquivos serão gravados diretamente nela.
+    // No Firefox/Safari usamos o fallback de download em .zip — pasta não se aplica.
+    if (isFileSystemAPIAvailable && !directoryHandle) {
+      this._uiController.showToast(
+        'Escolha uma pasta de destino antes de dividir.',
+        'error'
+      );
       return;
     }
 
@@ -532,10 +547,7 @@ class App {
         const pagesPerPart = this._uiController.getSplitPageCount();
 
         if (!pagesPerPart || pagesPerPart < 1) {
-          this._uiController.showToast(
-            'Informe ao menos 1 página por parte.',
-            'error'
-          );
+          this._uiController.showToast('Informe ao menos 1 página por parte.', 'error');
           return;
         }
 
@@ -550,10 +562,7 @@ class App {
         const targetBytes = this._uiController.getSplitFileSizeBytes();
 
         if (!targetBytes || targetBytes <= 0) {
-          this._uiController.showToast(
-            'Informe um tamanho-limite válido.',
-            'error'
-          );
+          this._uiController.showToast('Informe um tamanho-limite válido.', 'error');
           return;
         }
 
@@ -566,23 +575,43 @@ class App {
         );
       }
 
-      this._uiController.setSplitProgressState(true, 100, 'Finalizando…');
-
-      // Baixa cada parte com intervalo para evitar bloqueio do navegador.
-      for (let i = 0; i < chunks.length; i++) {
-        const { bytes, startPage, endPage } = chunks[i];
-        const partFileName = `${prefix}_pag${startPage + 1}-${endPage + 1}.pdf`;
-
-        await new Promise(resolve => setTimeout(resolve, i * 150));
-        this._downloadPdfFile(bytes, partFileName);
-      }
-
       const partWord = chunks.length === 1 ? 'parte' : 'partes';
-      this._uiController.showToast(
-        `PDF dividido em ${chunks.length} ${partWord} com sucesso!`,
-        'success',
-        7000
-      );
+
+      if (isFileSystemAPIAvailable) {
+        // Chrome / Edge: grava cada chunk diretamente na pasta selecionada.
+        // Nenhuma aba ou janela de download é aberta.
+        for (let i = 0; i < chunks.length; i++) {
+          const { bytes, startPage, endPage } = chunks[i];
+          const partFileName = `${prefix}_pag${startPage + 1}-${endPage + 1}.pdf`;
+
+          this._uiController.setSplitProgressState(
+            true,
+            Math.round(((i + 1) / chunks.length) * 100),
+            `Salvando ${partFileName}…`
+          );
+
+          const fileHandle = await directoryHandle.getFileHandle(partFileName, { create: true });
+          const writable   = await fileHandle.createWritable();
+          await writable.write(bytes);
+          await writable.close();
+        }
+
+        this._uiController.showToast(
+          `PDF dividido em ${chunks.length} ${partWord} e salvo em "${directoryHandle.name}" com sucesso!`,
+          'success',
+          8000
+        );
+      } else {
+        // Firefox / Safari: compacta todas as partes em um único .zip e baixa.
+        this._uiController.setSplitProgressState(true, 95, 'Compactando arquivos…');
+        await this._saveChunksAsZip(chunks, prefix);
+
+        this._uiController.showToast(
+          `PDF dividido em ${chunks.length} ${partWord}. Baixando como arquivo .zip…`,
+          'success',
+          8000
+        );
+      }
     } catch (error) {
       this._uiController.showToast(`Erro: ${error.message}`, 'error', 6000);
     } finally {
@@ -683,6 +712,40 @@ class App {
   }
 
   // ─── Helpers compartilhados ────────────────────────────────────────────────
+
+  /**
+   * Empacota todos os chunks em um único arquivo .zip e dispara seu download.
+   *
+   * Usado como fallback quando a File System Access API não está disponível
+   * (Firefox, Safari). Em vez de múltiplos downloads individuais, o usuário
+   * recebe um único arquivo .zip contendo todos os PDFs resultantes da divisão.
+   *
+   * @param {Array<{bytes: Uint8Array, startPage: number, endPage: number}>} chunks
+   * @param {string} prefix - Prefixo para nomear cada PDF dentro do .zip
+   * @returns {Promise<void>}
+   */
+  async _saveChunksAsZip(chunks, prefix) {
+    const zip = new JSZip();
+
+    for (const { bytes, startPage, endPage } of chunks) {
+      const partFileName = `${prefix}_pag${startPage + 1}-${endPage + 1}.pdf`;
+      zip.file(partFileName, bytes);
+    }
+
+    const zipBytes  = await zip.generateAsync({ type: 'uint8array' });
+    const blob      = new Blob([zipBytes], { type: 'application/zip' });
+    const objectUrl = URL.createObjectURL(blob);
+
+    const temporaryLink    = document.createElement('a');
+    temporaryLink.href     = objectUrl;
+    temporaryLink.download = `${prefix}_dividido.zip`;
+
+    document.body.appendChild(temporaryLink);
+    temporaryLink.click();
+    document.body.removeChild(temporaryLink);
+
+    URL.revokeObjectURL(objectUrl);
+  }
 
   /**
    * Delega ao UIController a geração do nome do arquivo de saída,

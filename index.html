@@ -435,6 +435,30 @@
               <div class="filename-preview" id="split-filename-preview"></div>
             </div>
 
+            <!-- Pasta de destino -->
+            <div class="field-group">
+              <span class="field-label">Pasta de destino</span>
+
+              <!-- Chrome / Edge: File System Access API disponível -->
+              <div class="split-folder-row" id="split-folder-row">
+                <button class="btn btn-ghost" id="split-btn-pick-folder" type="button">
+                  📁 Escolher pasta
+                </button>
+                <span class="split-folder-name" id="split-folder-name">
+                  Nenhuma pasta selecionada
+                </span>
+              </div>
+
+              <!-- Firefox / Safari: fallback via download .zip -->
+              <div id="split-folder-fallback" hidden>
+                <span class="split-folder-fallback-note">
+                  ℹ️ Seu navegador não suporta seleção de pasta. Após dividir, os arquivos
+                  serão baixados em um único <strong>.zip</strong>.
+                </span>
+              </div>
+
+            </div>
+
           </div>
 
           <!-- Barra de progresso -->
@@ -462,6 +486,8 @@
 
     <!-- Dependência: pdf-lib para manipulação de PDFs no navegador -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <!-- Dependência: JSZip para empacotar múltiplos PDFs em um único .zip (fallback Firefox/Safari) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <!-- Dependência: PDF.js para renderizar miniaturas das páginas -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
