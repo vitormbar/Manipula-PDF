@@ -3,12 +3,12 @@
  *
  * Responsabilidade única: executar operações sobre arquivos PDF.
  *
- * Atualmente implementa apenas a operação de união (merge).
- * A classe foi estruturada para receber futuras operações como:
- *   - split()    — dividir um PDF em múltiplos
- *   - compress() — reduzir o tamanho do arquivo
- *   - rotate()   — girar páginas
- *   - extract()  — extrair páginas específicas
+ * Operações implementadas:
+ *   - mergePdfs()        — unir múltiplos PDFs em um único arquivo
+ *   - extractPages()     — extrair páginas específicas para um novo arquivo
+ *   - organizePages()    — reordenar e rotacionar páginas
+ *   - splitByPageCount() — dividir em partes com N páginas cada
+ *   - splitByFileSize()  — dividir em partes com no máximo X bytes cada
  *
  * Depende da biblioteca pdf-lib (carregada via CDN no HTML).
  */
@@ -151,6 +151,112 @@ class PdfProcessor {
     return newDocument.save();
   }
 
+  // ─── Métodos públicos: Dividir PDF ────────────────────────────────────────
+
+  /**
+   * Divide um PDF em partes com o mesmo número de páginas cada.
+   *
+   * A última parte pode ter menos páginas que o total solicitado caso o número
+   * total não seja múltiplo exato de `pagesPerPart`.
+   *
+   * @param {File}   sourceFile              - Arquivo PDF de origem
+   * @param {number} pagesPerPart            - Quantidade de páginas por parte (≥ 1)
+   * @param {function(number): void} onProgressUpdate - Callback de progresso (0–100)
+   * @returns {Promise<Array<{bytes: Uint8Array, startPage: number, endPage: number}>>}
+   *   Array de chunks, cada um com os bytes do PDF e o intervalo de páginas (0-based)
+   * @throws {Error} Se pagesPerPart for inválido ou o arquivo não for um PDF válido
+   */
+  async splitByPageCount(sourceFile, pagesPerPart, onProgressUpdate) {
+    if (!pagesPerPart || pagesPerPart < 1) {
+      throw new Error('A quantidade de páginas por parte deve ser ao menos 1.');
+    }
+
+    const fileBytes      = await this._readFileAsArrayBuffer(sourceFile);
+    const sourceDocument = await this._loadPdfDocument(fileBytes, sourceFile.name);
+    const totalPages     = sourceDocument.getPageCount();
+    const chunks         = [];
+
+    for (let startPage = 0; startPage < totalPages; startPage += pagesPerPart) {
+      const endPage  = Math.min(startPage + pagesPerPart - 1, totalPages - 1);
+      const chunkBytes = await this._buildChunk(sourceDocument, startPage, endPage);
+
+      chunks.push({ bytes: chunkBytes, startPage, endPage });
+
+      onProgressUpdate(Math.round(((endPage + 1) / totalPages) * 100));
+    }
+
+    return chunks;
+  }
+
+  /**
+   * Divide um PDF em partes onde cada parte nunca ultrapassa `targetSizeBytes`.
+   *
+   * Usa busca binária por chunk para encontrar o maior número de páginas que
+   * cabe dentro do limite sem excedê-lo. Se uma única página já superar o limite,
+   * ela é incluída sozinha (uma página é indivisível).
+   *
+   * @param {File}   sourceFile               - Arquivo PDF de origem
+   * @param {number} targetSizeBytes          - Tamanho máximo em bytes por parte
+   * @param {function(number): void} onProgressUpdate - Callback de progresso (0–100)
+   * @returns {Promise<Array<{bytes: Uint8Array, startPage: number, endPage: number}>>}
+   * @throws {Error} Se targetSizeBytes for inválido ou o arquivo não for um PDF válido
+   */
+  async splitByFileSize(sourceFile, targetSizeBytes, onProgressUpdate) {
+    if (!targetSizeBytes || targetSizeBytes <= 0) {
+      throw new Error('O tamanho-alvo por parte deve ser maior que zero.');
+    }
+
+    const fileBytes      = await this._readFileAsArrayBuffer(sourceFile);
+    const sourceDocument = await this._loadPdfDocument(fileBytes, sourceFile.name);
+    const totalPages     = sourceDocument.getPageCount();
+    const chunks         = [];
+    let   startPage      = 0;
+
+    while (startPage < totalPages) {
+      const remainingPages = totalPages - startPage;
+      let   low            = 1;
+      let   high           = remainingPages;
+      let   bestPageCount  = 0;
+      let   bestBytes      = null;
+
+      // Busca binária: encontra o maior número de páginas que cabe no limite.
+      // Cada iteração constrói um PDF candidato e verifica seu tamanho.
+      while (low <= high) {
+        const mid            = Math.floor((low + high) / 2);
+        const candidateBytes = await this._buildChunk(
+          sourceDocument,
+          startPage,
+          startPage + mid - 1
+        );
+
+        if (candidateBytes.byteLength <= targetSizeBytes) {
+          // Este candidato coube: registra e tenta incluir mais páginas
+          bestPageCount = mid;
+          bestBytes     = candidateBytes;
+          low           = mid + 1;
+        } else {
+          // Ultrapassou o limite: reduz o número de páginas
+          high = mid - 1;
+        }
+      }
+
+      // Caso especial: mesmo 1 página ultrapassa o limite.
+      // Inclui forçadamente — uma página é indivisível.
+      if (bestPageCount === 0) {
+        bestBytes     = await this._buildChunk(sourceDocument, startPage, startPage);
+        bestPageCount = 1;
+      }
+
+      const endPage = startPage + bestPageCount - 1;
+      chunks.push({ bytes: bestBytes, startPage, endPage });
+
+      startPage += bestPageCount;
+      onProgressUpdate(Math.round((startPage / totalPages) * 100));
+    }
+
+    return chunks;
+  }
+
   /**
    * Lê um arquivo, o converte em documento pdf-lib e copia todas as suas
    * páginas para o documento de destino.
@@ -170,6 +276,31 @@ class PdfProcessor {
     for (const page of copiedPages) {
       destinationDocument.addPage(page);
     }
+  }
+
+  /**
+   * Constrói um PDF contendo apenas as páginas no intervalo [startPageIndex, endPageIndex].
+   *
+   * Usado internamente por `splitByPageCount` e `splitByFileSize` para montar
+   * cada chunk sem duplicar a lógica de criação de documento.
+   *
+   * @param {PDFLib.PDFDocument} sourceDocument  - Documento já carregado
+   * @param {number}             startPageIndex  - Primeiro índice 0-based (inclusivo)
+   * @param {number}             endPageIndex    - Último índice 0-based (inclusivo)
+   * @returns {Promise<Uint8Array>} Bytes do chunk em formato PDF
+   */
+  async _buildChunk(sourceDocument, startPageIndex, endPageIndex) {
+    const chunkDocument = await PDFLib.PDFDocument.create();
+
+    const pageIndices = Array.from(
+      { length: endPageIndex - startPageIndex + 1 },
+      (_, offset) => startPageIndex + offset
+    );
+
+    const copiedPages = await chunkDocument.copyPages(sourceDocument, pageIndices);
+    copiedPages.forEach(page => chunkDocument.addPage(page));
+
+    return chunkDocument.save({ useObjectStreams: true });
   }
 
   /**

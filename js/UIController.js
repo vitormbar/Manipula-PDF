@@ -205,6 +205,9 @@ class UIController {
 
     // Painel Organizar Páginas
     this._attachOrganizePanelListeners();
+
+    // Painel Dividir PDF
+    this._attachSplitPanelListeners();
   }
 
   // ─── Painel Extrair Páginas: métodos públicos ─────────────────────────────
@@ -1074,6 +1077,231 @@ class UIController {
     return listItem;
   }
 
+  // ─── Painel: Dividir PDF — métodos públicos ────────────────────────────────
+
+  /**
+   * Exibe as informações do arquivo selecionado e revela a seção de configuração.
+   *
+   * @param {File}   file      - Arquivo PDF selecionado
+   * @param {number} pageCount - Total de páginas do documento
+   */
+  renderSplitFileInfo(file, pageCount) {
+    this._elements.splitUploadZone.hidden  = true;
+    this._elements.splitFileInfo.hidden    = false;
+    this._elements.splitConfig.hidden      = false;
+    this._elements.splitPanelFooter.hidden = false;
+
+    this._elements.splitFileName.textContent    = file.name;
+    this._elements.splitFileDetails.textContent =
+      `${pageCount} página${pageCount !== 1 ? 's' : ''} · ${this._formatFileSize(file.size)}`;
+
+    // Garante campos limpos ao trocar de arquivo
+    this._elements.splitCustomName.value = '';
+    this._updateSplitFilenamePreview();
+  }
+
+  /**
+   * Reseta o painel de divisão para o estado inicial (zona de upload visível).
+   */
+  clearSplitPanel() {
+    this._elements.splitUploadZone.hidden  = false;
+    this._elements.splitFileInfo.hidden    = true;
+    this._elements.splitConfig.hidden      = true;
+    this._elements.splitPanelFooter.hidden = true;
+
+    this._elements.splitCustomName.value   = '';
+    this._elements.splitPagesCount.value   = '5';
+    this._elements.splitSizeValue.value    = '5';
+    this._elements.splitSizeUnit.value     = 'mb';
+    this._elements.splitModePagesRadio.checked = true;
+    this._elements.splitPagesGroup.hidden      = false;
+    this._elements.splitSizeGroup.hidden       = true;
+    this._elements.splitFilenamePreview.textContent = '';
+  }
+
+  /**
+   * Habilita ou desabilita os controles do painel durante o processamento.
+   *
+   * @param {boolean} isProcessing
+   */
+  setSplitProcessingState(isProcessing) {
+    const elementsToToggle = [
+      this._elements.btnSplit,
+      this._elements.splitPagesCount,
+      this._elements.splitSizeValue,
+      this._elements.splitSizeUnit,
+      this._elements.splitCustomName,
+      this._elements.splitBtnRemoveFile,
+      this._elements.splitModePagesRadio,
+      this._elements.splitModeSizeRadio,
+    ];
+
+    for (const element of elementsToToggle) {
+      element.disabled = isProcessing;
+    }
+
+    this._elements.btnSplit.innerHTML = isProcessing
+      ? '<span aria-hidden="true">⏳</span> Processando…'
+      : '<span aria-hidden="true">📑</span> Dividir PDF';
+  }
+
+  /**
+   * Exibe ou oculta a barra de progresso do painel de divisão.
+   *
+   * @param {boolean} isVisible
+   * @param {number}  percentage - 0 a 100
+   * @param {string}  label      - Texto descritivo
+   */
+  setSplitProgressState(isVisible, percentage = 0, label = '') {
+    this._elements.splitProgressContainer.hidden      = !isVisible;
+    this._elements.splitProgressBarFill.style.width   = `${percentage}%`;
+    this._elements.splitProgressLabel.textContent     = label;
+  }
+
+  /**
+   * Retorna o modo de divisão selecionado pelo usuário.
+   *
+   * @returns {'pages'|'size'}
+   */
+  getSplitMode() {
+    return this._elements.splitModePagesRadio.checked ? 'pages' : 'size';
+  }
+
+  /**
+   * Retorna a quantidade de páginas por parte configurada.
+   *
+   * @returns {number}
+   */
+  getSplitPageCount() {
+    return parseInt(this._elements.splitPagesCount.value, 10);
+  }
+
+  /**
+   * Converte o valor e unidade do campo de tamanho para bytes.
+   *
+   * @returns {number} Tamanho-limite em bytes
+   */
+  getSplitFileSizeBytes() {
+    const value = parseFloat(this._elements.splitSizeValue.value);
+    const unit  = this._elements.splitSizeUnit.value;
+    const multiplier = unit === 'mb' ? 1024 * 1024 : 1024;
+    return Math.floor(value * multiplier);
+  }
+
+  /**
+   * Retorna o prefixo de nome digitado pelo usuário.
+   * Retorna string vazia se o campo estiver em branco.
+   *
+   * @returns {string}
+   */
+  getSplitOutputPrefix() {
+    return this._elements.splitCustomName.value.trim();
+  }
+
+  // ─── Painel: Dividir PDF — métodos privados ────────────────────────────────
+
+  /**
+   * Vincula todos os event listeners do painel de divisão.
+   */
+  _attachSplitPanelListeners() {
+    // ── Seleção de arquivo ──────────────────────────────────────────────────
+    this._elements.splitBtnSelectFile.addEventListener('click', () => {
+      this._elements.splitFileInput.click();
+    });
+
+    this._elements.splitFileInput.addEventListener('change', (event) => {
+      const file = event.target.files?.[0];
+      if (file) this._handlers.onSplitFileSelected(file);
+      // Limpa o input para permitir re-seleção do mesmo arquivo
+      event.target.value = '';
+    });
+
+    // Acessibilidade: ativa via teclado na upload zone
+    this._elements.splitUploadZone.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        this._elements.splitFileInput.click();
+      }
+    });
+
+    // ── Drag and drop ───────────────────────────────────────────────────────
+    this._elements.splitUploadZone.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      this._elements.splitUploadZone.classList.add('drag-over');
+    });
+
+    this._elements.splitUploadZone.addEventListener('dragleave', () => {
+      this._elements.splitUploadZone.classList.remove('drag-over');
+    });
+
+    this._elements.splitUploadZone.addEventListener('drop', (event) => {
+      event.preventDefault();
+      this._elements.splitUploadZone.classList.remove('drag-over');
+      const file = event.dataTransfer.files?.[0];
+      if (file) this._handlers.onSplitFileSelected(file);
+    });
+
+    // ── Remover arquivo ─────────────────────────────────────────────────────
+    this._elements.splitBtnRemoveFile.addEventListener('click', () => {
+      this._handlers.onSplitFileRemoved();
+    });
+
+    // ── Toggle de modo: Por páginas / Por tamanho ───────────────────────────
+    const toggleModeGroups = () => {
+      const isPagesMode = this._elements.splitModePagesRadio.checked;
+      this._elements.splitPagesGroup.hidden = !isPagesMode;
+      this._elements.splitSizeGroup.hidden  =  isPagesMode;
+      this._updateSplitFilenamePreview();
+    };
+
+    this._elements.splitModePagesRadio.addEventListener('change', toggleModeGroups);
+    this._elements.splitModeSizeRadio.addEventListener('change', toggleModeGroups);
+
+    // ── Preview do nome de arquivo ──────────────────────────────────────────
+    this._elements.splitCustomName.addEventListener('input', () => {
+      this._updateSplitFilenamePreview();
+    });
+
+    this._elements.splitPagesCount.addEventListener('input', () => {
+      this._updateSplitFilenamePreview();
+    });
+
+    // ── Botão de ação ───────────────────────────────────────────────────────
+    this._elements.btnSplit.addEventListener('click', () => {
+      this._handlers.onSplitRequested();
+    });
+  }
+
+  /**
+   * Atualiza o preview do nome dos arquivos de saída com base no modo e prefixo.
+   *
+   * Modo "Por páginas": gera exemplo real com as primeiras partes calculadas.
+   * Modo "Por tamanho": exibe formato genérico pois os ranges são desconhecidos.
+   */
+  _updateSplitFilenamePreview() {
+    const prefix = this._elements.splitCustomName.value.trim() || 'arquivo';
+    const isPagesMode = this._elements.splitModePagesRadio.checked;
+
+    let previewText;
+
+    if (isPagesMode) {
+      const pagesPerPart = parseInt(this._elements.splitPagesCount.value, 10);
+      if (!pagesPerPart || pagesPerPart < 1) {
+        this._elements.splitFilenamePreview.textContent = '';
+        return;
+      }
+      // Mostra as duas primeiras partes e reticências como exemplo
+      const part1End = pagesPerPart;
+      const part2End = pagesPerPart * 2;
+      previewText =
+        `${prefix}_pag1-${part1End}.pdf  •  ${prefix}_pag${part1End + 1}-${part2End}.pdf  •  …`;
+    } else {
+      previewText = `${prefix}_pag1-N.pdf  •  ${prefix}_pagN+1-M.pdf  •  …`;
+    }
+
+    this._elements.splitFilenamePreview.textContent = previewText;
+  }
+
   // ─── Utilitários privados ──────────────────────────────────────────────────
 
   /**
@@ -1147,6 +1375,29 @@ class UIController {
       organizeProgressLabel:     document.getElementById('organize-progress-label'),
       organizePanelFooter:       document.getElementById('organize-panel-footer'),
       btnOrganize:               document.getElementById('btn-organize'),
+      // Painel Dividir PDF
+      splitUploadZone:        document.getElementById('split-upload-zone'),
+      splitFileInput:         document.getElementById('split-file-input'),
+      splitBtnSelectFile:     document.getElementById('split-btn-select-file'),
+      splitFileInfo:          document.getElementById('split-file-info'),
+      splitFileName:          document.getElementById('split-file-name'),
+      splitFileDetails:       document.getElementById('split-file-details'),
+      splitBtnRemoveFile:     document.getElementById('split-btn-remove-file'),
+      splitConfig:            document.getElementById('split-config'),
+      splitModePagesRadio:    document.getElementById('split-mode-pages'),
+      splitModeSizeRadio:     document.getElementById('split-mode-size'),
+      splitPagesGroup:        document.getElementById('split-pages-group'),
+      splitPagesCount:        document.getElementById('split-pages-count'),
+      splitSizeGroup:         document.getElementById('split-size-group'),
+      splitSizeValue:         document.getElementById('split-size-value'),
+      splitSizeUnit:          document.getElementById('split-size-unit'),
+      splitCustomName:        document.getElementById('split-custom-name'),
+      splitFilenamePreview:   document.getElementById('split-filename-preview'),
+      splitProgressContainer: document.getElementById('split-progress-container'),
+      splitProgressBarFill:   document.getElementById('split-progress-bar-fill'),
+      splitProgressLabel:     document.getElementById('split-progress-label'),
+      splitPanelFooter:       document.getElementById('split-panel-footer'),
+      btnSplit:               document.getElementById('btn-split'),
       // Notificações
       toastContainer:    document.getElementById('toast-container'),
     };

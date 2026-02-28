@@ -29,7 +29,10 @@
               <span class="nav-icon">🔀</span>
               <span class="nav-label">Organizar Páginas</span>
             </li>
-            <!-- Futuras ferramentas serão adicionadas aqui -->
+            <li class="nav-item" data-tool="split">
+              <span class="nav-icon">📑</span>
+              <span class="nav-label">Dividir PDF</span>
+            </li>
           </ul>
         </nav>
       </aside>
@@ -326,6 +329,129 @@
               <span aria-hidden="true">💾</span> Salvar PDF
             </button>
           </div>
+        </section>
+
+        <!-- Painel: Dividir PDF -->
+        <section class="tool-panel" id="panel-split">
+          <header class="panel-header">
+            <h1 class="panel-title">Dividir PDF</h1>
+            <p class="panel-description">
+              Separa um PDF em múltiplos arquivos menores. Escolha dividir por
+              quantidade de páginas ou por tamanho máximo por arquivo.
+            </p>
+          </header>
+
+          <!-- Zona de upload -->
+          <div class="upload-zone" id="split-upload-zone" role="button" tabindex="0"
+               aria-label="Arraste um PDF aqui ou clique para selecionar">
+            <div class="upload-zone-content">
+              <span class="upload-icon" aria-hidden="true">📂</span>
+              <p class="upload-primary-text">Arraste o arquivo PDF aqui</p>
+              <p class="upload-secondary-text">ou</p>
+              <button class="btn btn-ghost" id="split-btn-select-file" type="button">
+                Selecionar Arquivo
+              </button>
+            </div>
+            <input type="file" id="split-file-input" accept="application/pdf" hidden />
+          </div>
+
+          <!-- Card do arquivo selecionado (oculto até seleção) -->
+          <div class="extract-file-card" id="split-file-info" hidden>
+            <span class="file-icon" aria-hidden="true">📄</span>
+            <div class="file-info">
+              <span class="file-name" id="split-file-name"></span>
+              <span class="file-size" id="split-file-details"></span>
+            </div>
+            <button class="btn btn-ghost btn-small" id="split-btn-remove-file" type="button">
+              ✕ Remover
+            </button>
+          </div>
+
+          <!-- Configuração (oculta até arquivo ser selecionado) -->
+          <div class="split-config" id="split-config" hidden>
+
+            <!-- Seleção do modo -->
+            <div class="field-group">
+              <span class="field-label">Modo de divisão</span>
+              <div class="split-mode-options">
+
+                <label class="split-mode-option">
+                  <input type="radio" name="split-mode"
+                         id="split-mode-pages" value="pages" checked />
+                  <div class="split-mode-body">
+                    <span class="split-mode-label">Por páginas</span>
+                    <span class="split-mode-desc">
+                      Divide o PDF em partes com o mesmo número de páginas.
+                    </span>
+                  </div>
+                </label>
+
+                <label class="split-mode-option">
+                  <input type="radio" name="split-mode"
+                         id="split-mode-size" value="size" />
+                  <div class="split-mode-body">
+                    <span class="split-mode-label">Por tamanho</span>
+                    <span class="split-mode-desc">
+                      Divide em arquivos com no máximo X MB ou KB.
+                      Cada parte nunca ultrapassa o limite informado.
+                    </span>
+                  </div>
+                </label>
+
+              </div>
+            </div>
+
+            <!-- Parâmetro: páginas por parte (modo "Por páginas") -->
+            <div class="split-param-group" id="split-pages-group">
+              <label class="field-label" for="split-pages-count">Páginas por parte</label>
+              <input class="field-input split-number-input" type="number"
+                     id="split-pages-count" min="1" value="5" />
+            </div>
+
+            <!-- Parâmetro: tamanho máximo (modo "Por tamanho") -->
+            <div class="split-param-group" id="split-size-group" hidden>
+              <label class="field-label">Tamanho máximo por parte</label>
+              <div class="split-size-input-row">
+                <input class="field-input split-number-input" type="number"
+                       id="split-size-value" min="1" value="5" />
+                <select class="field-input split-unit-select" id="split-size-unit">
+                  <option value="mb" selected>MB</option>
+                  <option value="kb">KB</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Nome dos arquivos de saída -->
+            <div class="output-settings">
+              <h2 class="output-settings-title">Nome dos arquivos</h2>
+              <div class="field-group">
+                <label class="field-label" for="split-custom-name">
+                  PREFIXO DO NOME
+                  <span class="field-hint"> — deixe em branco para usar o nome original</span>
+                </label>
+                <input class="field-input" type="text" id="split-custom-name"
+                       placeholder="Ex.: relatorio" />
+              </div>
+              <div class="filename-preview" id="split-filename-preview"></div>
+            </div>
+
+          </div>
+
+          <!-- Barra de progresso -->
+          <div class="progress-container" id="split-progress-container" hidden>
+            <span class="progress-label" id="split-progress-label"></span>
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" id="split-progress-bar-fill"></div>
+            </div>
+          </div>
+
+          <!-- Botão de ação principal -->
+          <div class="panel-footer" id="split-panel-footer" hidden>
+            <button class="btn btn-primary btn-large" id="btn-split" type="button">
+              <span aria-hidden="true">📑</span> Dividir PDF
+            </button>
+          </div>
+
         </section>
 
       </main>

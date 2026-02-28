@@ -20,6 +20,10 @@ class App {
     this._extractSourceFile = null;
     this._extractPageCount  = 0;
 
+    // Estado do painel de divisão.
+    this._splitSourceFile = null;
+    this._splitPageCount  = 0;
+
     // Estado do painel de organização.
     // `_organizePageStates` rastreia a ordem atual e a rotação adicional de cada
     // página: [{originalIndex: number, rotation: number}].
@@ -61,6 +65,10 @@ class App {
       onOrganizeResetRequested:         ()                    => this._handleOrganizeResetRequested(),
       onOrganizeDeleteSelectedRequested:(selectedPositions)  => this._handleOrganizeDeleteSelected(selectedPositions),
       onOrganizeRequested:              ()                   => this._handleOrganizeRequested(),
+      // Painel: Dividir PDF
+      onSplitFileSelected: (file) => this._handleSplitFileSelected(file),
+      onSplitFileRemoved:  ()     => this._handleSplitFileRemoved(),
+      onSplitRequested:    ()     => this._handleSplitRequested(),
     });
   }
 
@@ -462,6 +470,124 @@ class App {
     } finally {
       this._uiController.setOrganizeProcessingState(false);
       setTimeout(() => this._uiController.setOrganizeProgressState(false), 600);
+    }
+  }
+
+  // ─── Handlers do painel: Dividir PDF ──────────────────────────────────────
+
+  /**
+   * Carrega o PDF selecionado, obtém o total de páginas e revela a configuração.
+   *
+   * @param {File} file
+   */
+  async _handleSplitFileSelected(file) {
+    if (file.type !== 'application/pdf') {
+      this._uiController.showToast('Apenas arquivos PDF são aceitos.', 'error');
+      return;
+    }
+
+    try {
+      const pageCount      = await this._pdfProcessor.getPageCount(file);
+      this._splitSourceFile = file;
+      this._splitPageCount  = pageCount;
+      this._uiController.renderSplitFileInfo(file, pageCount);
+    } catch (error) {
+      this._uiController.showToast(`Erro ao abrir o arquivo: ${error.message}`, 'error');
+    }
+  }
+
+  /**
+   * Limpa o estado do painel de divisão quando o usuário remove o arquivo.
+   */
+  _handleSplitFileRemoved() {
+    this._splitSourceFile = null;
+    this._splitPageCount  = 0;
+    this._uiController.clearSplitPanel();
+  }
+
+  /**
+   * Executa a divisão do PDF no modo selecionado e dispara o download de cada parte.
+   *
+   * As partes são baixadas em sequência, com um intervalo de 150 ms entre cada
+   * download para evitar que o navegador bloqueie múltiplos downloads simultâneos.
+   * O nome de cada parte segue o padrão: `{prefixo}_pag{inicio}-{fim}.pdf`.
+   */
+  async _handleSplitRequested() {
+    if (!this._splitSourceFile) {
+      this._uiController.showToast('Selecione um arquivo PDF primeiro.', 'error');
+      return;
+    }
+
+    const mode   = this._uiController.getSplitMode();
+    const prefix = this._uiController.getSplitOutputPrefix()
+      || this._splitSourceFile.name.replace(/\.pdf$/i, '');
+
+    this._uiController.setSplitProcessingState(true);
+    this._uiController.setSplitProgressState(true, 0, 'Iniciando divisão…');
+
+    try {
+      let chunks;
+
+      if (mode === 'pages') {
+        const pagesPerPart = this._uiController.getSplitPageCount();
+
+        if (!pagesPerPart || pagesPerPart < 1) {
+          this._uiController.showToast(
+            'Informe ao menos 1 página por parte.',
+            'error'
+          );
+          return;
+        }
+
+        chunks = await this._pdfProcessor.splitByPageCount(
+          this._splitSourceFile,
+          pagesPerPart,
+          (pct) => this._uiController.setSplitProgressState(
+            true, pct, `Dividindo… ${pct}%`
+          )
+        );
+      } else {
+        const targetBytes = this._uiController.getSplitFileSizeBytes();
+
+        if (!targetBytes || targetBytes <= 0) {
+          this._uiController.showToast(
+            'Informe um tamanho-limite válido.',
+            'error'
+          );
+          return;
+        }
+
+        chunks = await this._pdfProcessor.splitByFileSize(
+          this._splitSourceFile,
+          targetBytes,
+          (pct) => this._uiController.setSplitProgressState(
+            true, pct, `Analisando páginas… ${pct}%`
+          )
+        );
+      }
+
+      this._uiController.setSplitProgressState(true, 100, 'Finalizando…');
+
+      // Baixa cada parte com intervalo para evitar bloqueio do navegador.
+      for (let i = 0; i < chunks.length; i++) {
+        const { bytes, startPage, endPage } = chunks[i];
+        const partFileName = `${prefix}_pag${startPage + 1}-${endPage + 1}.pdf`;
+
+        await new Promise(resolve => setTimeout(resolve, i * 150));
+        this._downloadPdfFile(bytes, partFileName);
+      }
+
+      const partWord = chunks.length === 1 ? 'parte' : 'partes';
+      this._uiController.showToast(
+        `PDF dividido em ${chunks.length} ${partWord} com sucesso!`,
+        'success',
+        7000
+      );
+    } catch (error) {
+      this._uiController.showToast(`Erro: ${error.message}`, 'error', 6000);
+    } finally {
+      this._uiController.setSplitProcessingState(false);
+      setTimeout(() => this._uiController.setSplitProgressState(false), 600);
     }
   }
 

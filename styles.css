@@ -894,3 +894,82 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+/* ─── Painel: Dividir PDF ──────────────────────────────────────────────────── */
+
+.split-config {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Cards de modo de divisão */
+.split-mode-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.split-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.split-mode-option:has(input:checked) {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+}
+
+.split-mode-option input[type="radio"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+  accent-color: var(--primary);
+}
+
+.split-mode-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.split-mode-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.split-mode-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* Grupos de parâmetro de split (páginas ou tamanho) */
+.split-param-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Input numérico compacto */
+.split-number-input {
+  max-width: 120px;
+}
+
+/* Row do modo "Por tamanho": input + seletor de unidade lado a lado */
+.split-size-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.split-unit-select {
+  width: 80px;
+}
